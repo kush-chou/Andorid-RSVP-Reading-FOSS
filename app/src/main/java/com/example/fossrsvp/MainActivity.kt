@@ -177,19 +177,19 @@ enum class ContextStyleOption(val displayName: String) {
 suspend fun parseMarkdownToTokens(text: String, chunkWords: Boolean = false): List<RSVPToken> = withContext(Dispatchers.Default) {
     val rawTokens = mutableListOf<RSVPToken>()
     // Corrected Regex: removed redundant escape on first $ and removed redundant second $ escape
-    val regex = Regex("""(\$[^$]+\$)|(\S+)""") 
+    val regex = Regex("""(\$[^$]+\$)|(\S+)""")
     val matches = regex.findAll(text)
-    
+
     for (match in matches) {
         var word = match.value
         var style = WordStyle.Normal
-        
+
         if (word.startsWith("$") && word.endsWith("$")) {
-             style = WordStyle.Code
+            style = WordStyle.Code
         }
         else if (word.contains("***") && word.length > 6 && (word.length - word.replace("***", "").length == 6)) {
-             word = word.replace("***", "")
-             style = WordStyle.BoldItalic
+            word = word.replace("***", "")
+            style = WordStyle.BoldItalic
         }
         else if (word.contains("**") && word.length > 4 && (word.length - word.replace("**", "").length == 4)) {
             word = word.replace("**", "")
@@ -216,13 +216,13 @@ suspend fun parseMarkdownToTokens(text: String, chunkWords: Boolean = false): Li
             style = WordStyle.Header
         }
         else if (word.startsWith("[") && word.contains("]")) {
-             val endBracket = word.indexOf(']')
-             if (endBracket > 1) {
-                 word = word.substring(1, endBracket)
-                 style = WordStyle.Link
-             }
+            val endBracket = word.indexOf(']')
+            if (endBracket > 1) {
+                word = word.substring(1, endBracket)
+                style = WordStyle.Link
+            }
         }
-        
+
         var delayMultiplier = 1.0f
         if (word.endsWith(".") || word.endsWith("!") || word.endsWith("?")) {
             delayMultiplier = 2.0f
@@ -230,14 +230,14 @@ suspend fun parseMarkdownToTokens(text: String, chunkWords: Boolean = false): Li
             delayMultiplier = 1.5f
         }
         if (word.length > 10 || style == WordStyle.Code) {
-             delayMultiplier += 0.5f
+            delayMultiplier += 0.5f
         }
-        
+
         if (word.isNotEmpty()) {
             rawTokens.add(RSVPToken(word, style, delayMultiplier))
         }
     }
-    
+
     if (chunkWords) {
         val chunkedTokens = mutableListOf<RSVPToken>()
         var i = 0
@@ -247,9 +247,9 @@ suspend fun parseMarkdownToTokens(text: String, chunkWords: Boolean = false): Li
                 val t2 = rawTokens[i + 1]
                 val combinedWord = "${t1.word} ${t2.word}"
                 chunkedTokens.add(RSVPToken(
-                    word = combinedWord, 
+                    word = combinedWord,
                     style = t1.style,
-                    delayMultiplier = (t1.delayMultiplier + t2.delayMultiplier) * 0.8f 
+                    delayMultiplier = (t1.delayMultiplier + t2.delayMultiplier) * 0.8f
                 ))
                 i += 2
             } else {
@@ -266,10 +266,10 @@ suspend fun parseMarkdownToTokens(text: String, chunkWords: Boolean = false): Li
 suspend fun extractTextFromPdf(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
     try {
         context.contentResolver.openInputStream(uri)?.use { inputStream ->
-             PDDocument.load(inputStream).use { document ->
-                 val stripper = PDFTextStripper()
-                 stripper.getText(document)
-             }
+            PDDocument.load(inputStream).use { document ->
+                val stripper = PDFTextStripper()
+                stripper.getText(document)
+            }
         } ?: "Error reading file"
     } catch (e: Exception) {
         "Error: ${e.localizedMessage}"
@@ -289,18 +289,18 @@ suspend fun generateTextWithGemini(apiKey: String, prompt: String, preset: Strin
     try {
         val model = GenerativeModel("gemini-2.5-pro", apiKey)
         val systemContext = "You are an AI assistant embedded within a Speed Reading application (RSVP - Rapid Serial Visual Presentation). " +
-                            "The user wants to read the text you generate using this method, which displays one word at a time at high speed. " +
-                            "Therefore, please structure your response to be reader-friendly and linear, similar to a newspaper article or a clean essay. " +
-                            "Avoid complex formatting like tables, excessive bullet points, or ascii art that would break the flow. " +
-                            "Use standard paragraphs. " +
-                            "Here is the user's prompt:"
-        
+                "The user wants to read the text you generate using this method, which displays one word at a time at high speed. " +
+                "Therefore, please structure your response to be reader-friendly and linear, similar to a newspaper article or a clean essay. " +
+                "Avoid complex formatting like tables, excessive bullet points, or ascii art that would break the flow. " +
+                "Use standard paragraphs. " +
+                "Here is the user's prompt:"
+
         val fullPrompt = if (preset.isNotBlank()) {
             "$systemContext\n\n[User Custom Preset Instruction]: $preset\n\n[User Prompt]: $prompt"
         } else {
             "$systemContext\n\n$prompt"
         }
-        
+
         val response = model.generateContent(fullPrompt)
         response.text ?: "No response generated."
     } catch (e: Exception) {
@@ -376,7 +376,7 @@ fun InputSelectionScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     val tabs = listOf("Paste", "Web", "PDF", "Generate")
-    
+
     if (showSettingsDialog) {
         SettingsDialog(
             currentSettings = settings,
@@ -384,7 +384,7 @@ fun InputSelectionScreen(
             onDismiss = { showSettingsDialog = false }
         )
     }
-    
+
     Column(modifier = modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             IconButton(
@@ -393,14 +393,14 @@ fun InputSelectionScreen(
             ) {
                 Icon(Icons.Default.Settings, contentDescription = "Settings")
             }
-            
+
             Text(
                 text = "FOSS RSVP",
                 style = MaterialTheme.typography.headlineLarge,
                 modifier = Modifier.align(Alignment.Center)
             )
         }
-        
+
         NavigationBar(windowInsets = WindowInsets(0.dp)) {
             tabs.forEachIndexed { index, title ->
                 NavigationBarItem(
@@ -418,13 +418,13 @@ fun InputSelectionScreen(
                 )
             }
         }
-        
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .padding(16.dp),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.TopCenter
         ) {
             when(selectedTab) {
                 0 -> PasteInput(onStartReading)
@@ -440,9 +440,9 @@ fun InputSelectionScreen(
 fun PasteInput(onStartReading: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
-    
+
     Column(
-        modifier = Modifier.fillMaxSize(), 
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Paste text to read:")
@@ -470,8 +470,13 @@ fun WebInput(onStartReading: (String) -> Unit) {
     var url by remember { mutableStateOf("https://") }
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Spacer(modifier = Modifier.height(32.dp))
         Text("Enter Article URL:")
         OutlinedTextField(
             value = url,
@@ -480,7 +485,7 @@ fun WebInput(onStartReading: (String) -> Unit) {
             singleLine = true
         )
         if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            CircularProgressIndicator()
         }
         Button(
             onClick = {
@@ -504,7 +509,7 @@ fun PdfInput(onStartReading: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
-    
+
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -517,7 +522,7 @@ fun PdfInput(onStartReading: (String) -> Unit) {
             }
         }
     }
-    
+
     Column(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -554,14 +559,19 @@ fun GeminiInput(onStartReading: (String) -> Unit, preset: String) {
             isKeySaved = true
         }
     }
-    
+
     val saveKey = {
         sharedPreferences.edit { putString("GEMINI_API_KEY", apiKey) }
         isKeySaved = true
         Toast.makeText(context, "API Key Saved", Toast.LENGTH_SHORT).show()
     }
-    
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Spacer(modifier = Modifier.height(32.dp))
         if (!isKeySaved) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -579,7 +589,7 @@ fun GeminiInput(onStartReading: (String) -> Unit, preset: String) {
                 }
             }
         }
-        
+
         OutlinedTextField(
             value = prompt,
             onValueChange = { prompt = it },
@@ -587,11 +597,11 @@ fun GeminiInput(onStartReading: (String) -> Unit, preset: String) {
             modifier = Modifier
                 .fillMaxWidth()
         )
-        
+
         if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            CircularProgressIndicator()
         }
-        
+
         Button(
             onClick = {
                 val currentKey = sharedPreferences.getString("GEMINI_API_KEY", "") ?: ""
@@ -642,20 +652,20 @@ fun ReaderScreen(
     var currentIndex by remember { mutableIntStateOf(0) }
     var isPlaying by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    
+
     val focusRequester = remember { FocusRequester() }
-    
+
     BackHandler(onBack = onBack)
-    
+
     LaunchedEffect(isPlaying, settings.wpm) {
         if (isPlaying && tokens.isNotEmpty()) {
             val baseDelayMillis = (60000 / settings.wpm).toLong()
             while (currentIndex < tokens.size) {
                 val currentToken = tokens[currentIndex]
                 delay((baseDelayMillis * currentToken.delayMultiplier).toLong())
-                
-                if (!isPlaying) break 
-                
+
+                if (!isPlaying) break
+
                 if (currentIndex < tokens.size - 1) {
                     currentIndex++
                 } else {
@@ -703,7 +713,7 @@ fun ReaderScreen(
             .focusable()
     ) {
         LaunchedEffect(Unit) { focusRequester.requestFocus() }
-        
+
         Box(modifier = modifier.fillMaxSize()) {
             // Top Control Bar
             Row(
@@ -785,25 +795,25 @@ fun ReaderScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                     val density = LocalDensity.current
-                     val maxWidthPx = with(density) { this@BoxWithConstraints.maxWidth.toPx() }
-                     
-                     RSVPWordDisplay(
-                         token = if(tokens.isNotEmpty()) tokens[currentIndex] else RSVPToken(""),
-                         settings = settings,
-                         maxWidthPx = maxWidthPx
-                     )
+                    val density = LocalDensity.current
+                    val maxWidthPx = with(density) { this@BoxWithConstraints.maxWidth.toPx() }
+
+                    RSVPWordDisplay(
+                        token = if(tokens.isNotEmpty()) tokens[currentIndex] else RSVPToken(""),
+                        settings = settings,
+                        maxWidthPx = maxWidthPx
+                    )
                 }
-                
+
                 Spacer(modifier = Modifier.height(32.dp))
-                
+
                 // Context Text
                 val shouldShowContext = when(settings.showContext) {
                     ContextDisplayOption.Always -> true
                     ContextDisplayOption.Paused -> !isPlaying
                     ContextDisplayOption.Never -> false
                 }
-                
+
                 if (shouldShowContext) {
                     Text(
                         text = buildAnnotatedString {
@@ -813,7 +823,7 @@ fun ReaderScreen(
                             for (i in start until end) {
                                 val isCurrent = i == currentIndex
                                 val token = tokens[i]
-                                
+
                                 val fontWeight = when(token.style) {
                                     WordStyle.Bold, WordStyle.BoldItalic, WordStyle.Header -> FontWeight.Bold
                                     else -> if (isCurrent) FontWeight.Bold else FontWeight.Normal
@@ -827,7 +837,7 @@ fun ReaderScreen(
                                     if (isCurrent) settings.colorScheme.text else settings.colorScheme.contextText.copy(alpha = settings.contextOpacity)
                                 }
                                 val textDecoration = if (token.style == WordStyle.Link) TextDecoration.Underline else TextDecoration.None
-                                
+
                                 withStyle(style = SpanStyle(
                                     color = color,
                                     fontWeight = fontWeight,
@@ -843,7 +853,7 @@ fun ReaderScreen(
                                         .replace("_", "")
                                         .replace("`", "")
                                         .replace("#", "")
-                                    
+
                                     append("$cleanWord ")
                                 }
                             }
@@ -857,7 +867,7 @@ fun ReaderScreen(
                     )
                 }
             }
-            
+
             // Arrows
             IconButton(
                 onClick = { if (currentIndex > 0) currentIndex-- },
@@ -865,7 +875,7 @@ fun ReaderScreen(
             ) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous", tint = settings.colorScheme.contextText, modifier = Modifier.size(48.dp))
             }
-            
+
             IconButton(
                 onClick = { if (currentIndex < tokens.size - 1) currentIndex++ },
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp)
@@ -891,7 +901,7 @@ fun ReaderScreen(
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
-                
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -902,20 +912,20 @@ fun ReaderScreen(
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                         Icon(
-                             imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
-                             contentDescription = "Play/Pause",
-                             tint = settings.colorScheme.text,
-                             modifier = Modifier
-                                 .size(32.dp)
-                                 .clickable { isPlaying = !isPlaying }
-                         )
-                         Icon(
-                             Icons.Default.Refresh,
-                             contentDescription = "Restart",
-                             tint = settings.colorScheme.contextText,
-                             modifier = Modifier.clickable { currentIndex = 0 }
-                         )
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pause",
+                            tint = settings.colorScheme.text,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clickable { isPlaying = !isPlaying }
+                        )
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Restart",
+                            tint = settings.colorScheme.contextText,
+                            modifier = Modifier.clickable { currentIndex = 0 }
+                        )
                     }
                     Text("", modifier = Modifier.width(60.dp))
                 }
@@ -927,7 +937,7 @@ fun ReaderScreen(
 @Composable
 fun RSVPWordDisplay(token: RSVPToken, settings: AppSettings, maxWidthPx: Float) {
     if (token.word.isEmpty()) return
-    
+
     // Remove Markdown symbols BUT KEEP PUNCTUATION
     val word = when(token.style) {
         WordStyle.Bold -> token.word.replace("**", "").replace("__", "")
@@ -938,21 +948,21 @@ fun RSVPWordDisplay(token: RSVPToken, settings: AppSettings, maxWidthPx: Float) 
         WordStyle.Link -> token.word // Links usually need more parsing, keeping as is
         else -> token.word
     }
-    
+
     // Calculate pivot based on CLEANED word
     val pivotIndex = (word.length - 1) / 2
-    
+
     // Safety Limit: Calculate max possible font size to fit on screen
     val estimatedMaxFontSize = (maxWidthPx / (word.length * 0.6f)).coerceAtLeast(12f)
-    
+
     // Combine user setting with safety limit
     val density = LocalDensity.current
     val userFontSizePx = with(density) { settings.fontSize.sp.toPx() }
-    
+
     // Use the SMALLER of: User's desired size OR the Safety Max size
     val finalFontSizePx = min(userFontSizePx, estimatedMaxFontSize)
     val fontSizeSp = with(density) { finalFontSizePx.toSp() }
-    
+
     // Style logic
     val fontWeight = when(token.style) {
         WordStyle.Bold, WordStyle.BoldItalic, WordStyle.Header -> FontWeight.Bold
@@ -972,21 +982,21 @@ fun RSVPWordDisplay(token: RSVPToken, settings: AppSettings, maxWidthPx: Float) 
     ) {
         if (settings.focusLetterIndicator) {
             Canvas(modifier = Modifier.fillMaxWidth().height(20.dp)) {
-                 drawLine(
-                     color = settings.colorScheme.contextText,
-                     start = Offset(0f, size.height),
-                     end = Offset(size.width, size.height),
-                     strokeWidth = 2f
-                 )
-                 drawLine(
-                     color = settings.colorScheme.text,
-                     start = Offset(size.width / 2, size.height - 10f),
-                     end = Offset(size.width / 2, size.height),
-                     strokeWidth = 4f
-                 )
+                drawLine(
+                    color = settings.colorScheme.contextText,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 2f
+                )
+                drawLine(
+                    color = settings.colorScheme.text,
+                    start = Offset(size.width / 2, size.height - 10f),
+                    end = Offset(size.width / 2, size.height),
+                    strokeWidth = 4f
+                )
             }
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
 
         Row(
@@ -1040,23 +1050,23 @@ fun RSVPWordDisplay(token: RSVPToken, settings: AppSettings, maxWidthPx: Float) 
                 overflow = TextOverflow.Visible
             )
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
 
         if (settings.focusLetterIndicator) {
             Canvas(modifier = Modifier.fillMaxWidth().height(20.dp)) {
-                 drawLine(
-                     color = settings.colorScheme.contextText,
-                     start = Offset(0f, 0f),
-                     end = Offset(size.width, 0f),
-                     strokeWidth = 2f
-                 )
-                 drawLine(
-                     color = settings.colorScheme.text,
-                     start = Offset(size.width / 2, 0f),
-                     end = Offset(size.width / 2, 10f),
-                     strokeWidth = 4f
-                 )
+                drawLine(
+                    color = settings.colorScheme.contextText,
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 2f
+                )
+                drawLine(
+                    color = settings.colorScheme.text,
+                    start = Offset(size.width / 2, 0f),
+                    end = Offset(size.width / 2, 10f),
+                    strokeWidth = 4f
+                )
             }
         }
     }
@@ -1117,12 +1127,12 @@ fun SettingsDialog(
                         Text(text = option.displayName, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
-                
+
                 HorizontalDivider()
-                
+
                 // Font
                 Text("Font", style = MaterialTheme.typography.titleMedium)
-                 FontOption.entries.forEach { option ->
+                FontOption.entries.forEach { option ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1138,12 +1148,12 @@ fun SettingsDialog(
                 }
 
                 HorizontalDivider()
-                
+
                 // Toggles
                 Row(
-                     modifier = Modifier.fillMaxWidth(),
-                     horizontalArrangement = Arrangement.SpaceBetween,
-                     verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Highlight Center Letter")
                     Switch(
@@ -1151,11 +1161,11 @@ fun SettingsDialog(
                         onCheckedChange = { onSettingsChanged(currentSettings.copy(highlightCenterLetter = it)) }
                     )
                 }
-                
-                 Row(
-                     modifier = Modifier.fillMaxWidth(),
-                     horizontalArrangement = Arrangement.SpaceBetween,
-                     verticalAlignment = Alignment.CenterVertically
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Show Focus Indicator")
                     Switch(
@@ -1163,11 +1173,11 @@ fun SettingsDialog(
                         onCheckedChange = { onSettingsChanged(currentSettings.copy(focusLetterIndicator = it)) }
                     )
                 }
-                
-                 Row(
-                     modifier = Modifier.fillMaxWidth(),
-                     horizontalArrangement = Arrangement.SpaceBetween,
-                     verticalAlignment = Alignment.CenterVertically
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Chunk Words (Experimental)")
                     Switch(
@@ -1177,8 +1187,8 @@ fun SettingsDialog(
                 }
 
                 HorizontalDivider()
-                
-                 // Context Settings
+
+                // Context Settings
                 Text("Context Display", style = MaterialTheme.typography.titleMedium)
                 ContextDisplayOption.entries.forEach { option ->
                     Row(
@@ -1197,9 +1207,9 @@ fun SettingsDialog(
 
                 HorizontalDivider()
 
-                 // Context Style (Added to fix unused property warning and feature completeness)
-                 Text("Context Style", style = MaterialTheme.typography.titleMedium)
-                 ContextStyleOption.entries.forEach { option ->
+                // Context Style (Added to fix unused property warning and feature completeness)
+                Text("Context Style", style = MaterialTheme.typography.titleMedium)
+                ContextStyleOption.entries.forEach { option ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
