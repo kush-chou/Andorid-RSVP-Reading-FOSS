@@ -137,7 +137,8 @@ data class AppSettings(
     val wpm: Float = 300f,
     val fontSize: Int = 56,
     val promptPreset: String = "",
-    val chunkWords: Boolean = false // Experimental Feature
+    val chunkWords: Boolean = false, // Experimental Feature
+    val enableTts: Boolean = false
 )
 
 enum class ColorSchemeOption(val displayName: String, val background: Color, val text: Color, val contextText: Color) {
@@ -309,22 +310,36 @@ suspend fun generateTextWithGemini(apiKey: String, prompt: String, preset: Strin
 }
 
 class MainActivity : ComponentActivity() {
+    private var ttsHelper: TextToSpeechHelper? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ttsHelper = TextToSpeechHelper(this)
         PDFBoxResourceLoader.init(applicationContext)
         enableEdgeToEdge()
         setContent {
             FOSSRSVPTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    RSVPApp(modifier = Modifier.padding(innerPadding))
+                    RSVPApp(
+                        ttsHelper = ttsHelper,
+                        modifier = Modifier.padding(innerPadding)
+                    )
                 }
             }
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ttsHelper?.shutdown()
+    }
 }
 
 @Composable
-fun RSVPApp(modifier: Modifier = Modifier) {
+fun RSVPApp(
+    ttsHelper: TextToSpeechHelper?,
+    modifier: Modifier = Modifier
+) {
     var tokens by remember { mutableStateOf(emptyList<RSVPToken>()) }
     var isReading by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(AppSettings()) }
@@ -343,6 +358,7 @@ fun RSVPApp(modifier: Modifier = Modifier) {
         ReaderScreen(
             tokens = tokens,
             settings = settings,
+            ttsHelper = ttsHelper,
             onSettingsChanged = { settings = it },
             onBack = { isReading = false },
             modifier = modifier
@@ -645,6 +661,7 @@ fun GeminiInput(onStartReading: (String) -> Unit, preset: String) {
 fun ReaderScreen(
     tokens: List<RSVPToken>,
     settings: AppSettings,
+    ttsHelper: TextToSpeechHelper?,
     onSettingsChanged: (AppSettings) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -656,6 +673,22 @@ fun ReaderScreen(
     val focusRequester = remember { FocusRequester() }
 
     BackHandler(onBack = onBack)
+
+    LaunchedEffect(currentIndex) {
+        if (settings.enableTts) {
+            val token = tokens.getOrNull(currentIndex)
+            if (token != null && token.word.isNotEmpty()) {
+                val wordToSpeak = token.word
+                    .replace("**", "")
+                    .replace("__", "")
+                    .replace("*", "")
+                    .replace("_", "")
+                    .replace("`", "")
+                    .replace("#", "")
+                ttsHelper?.speak(wordToSpeak)
+            }
+        }
+    }
 
     LaunchedEffect(isPlaying, settings.wpm) {
         if (isPlaying && tokens.isNotEmpty()) {
@@ -1183,6 +1216,18 @@ fun SettingsDialog(
                     Switch(
                         checked = currentSettings.chunkWords,
                         onCheckedChange = { onSettingsChanged(currentSettings.copy(chunkWords = it)) }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Enable Text-to-Speech")
+                    Switch(
+                        checked = currentSettings.enableTts,
+                        onCheckedChange = { onSettingsChanged(currentSettings.copy(enableTts = it)) }
                     )
                 }
 
