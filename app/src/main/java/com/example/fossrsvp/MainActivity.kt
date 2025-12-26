@@ -42,6 +42,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -114,14 +115,11 @@ import androidx.core.content.edit
 import com.example.fossrsvp.ui.theme.FOSSRSVPTheme
 import com.google.ai.client.generativeai.GenerativeModel
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
-import com.tom_roush.pdfbox.pdmodel.PDDocument
-import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.jsoup.Jsoup
 import java.util.Locale
 import kotlin.math.min
 
@@ -289,27 +287,6 @@ suspend fun parseMarkdownToTokens(text: String, chunkSize: Int = 1): List<RSVPTo
     }
 }
 
-suspend fun extractTextFromPdf(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
-    try {
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            PDDocument.load(inputStream).use { document ->
-                val stripper = PDFTextStripper()
-                stripper.getText(document)
-            }
-        } ?: "Error reading file"
-    } catch (e: Exception) {
-        "Error: ${e.localizedMessage}"
-    }
-}
-
-suspend fun extractTextFromUrl(url: String): String = withContext(Dispatchers.IO) {
-    try {
-        val doc = Jsoup.connect(url).get()
-        doc.body().text()
-    } catch (e: Exception) {
-        "Error fetching URL: ${e.localizedMessage}"
-    }
-}
 
 suspend fun generateTextWithGemini(apiKey: String, prompt: String, preset: String, modelName: String): String = withContext(Dispatchers.IO) {
     try {
@@ -440,7 +417,7 @@ fun InputSelectionScreen(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    val tabs = listOf("Paste", "Web", "PDF", "Generate")
+    val tabs = listOf("Paste", "Web", "PDF", "EPUB", "Generate")
 
     if (showSettingsDialog) {
         SettingsDialog(
@@ -484,7 +461,8 @@ fun InputSelectionScreen(
                             0 -> Icon(Icons.Default.ContentPaste, contentDescription = null)
                             1 -> Icon(Icons.Default.Language, contentDescription = null)
                             2 -> Icon(Icons.Default.PictureAsPdf, contentDescription = null)
-                            3 -> Icon(Icons.Default.SmartToy, contentDescription = null)
+                            3 -> Icon(Icons.Default.Book, contentDescription = null)
+                            4 -> Icon(Icons.Default.SmartToy, contentDescription = null)
                         }
                     },
                     label = { Text(title) }
@@ -503,7 +481,8 @@ fun InputSelectionScreen(
                 0 -> PasteInput(onStartReading)
                 1 -> WebInput(onStartReading, settings)
                 2 -> PdfInput(onStartReading)
-                3 -> GeminiInput(onStartReading, settings)
+                3 -> EpubInput(onStartReading)
+                4 -> GeminiInput(onStartReading, settings)
             }
         }
     }
@@ -622,6 +601,45 @@ fun PdfInput(onStartReading: (String) -> Unit) {
         } else {
             Button(onClick = { launcher.launch("application/pdf") }) {
                 Text("Pick PDF")
+            }
+        }
+    }
+}
+
+@Composable
+fun EpubInput(onStartReading: (String) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isLoading by remember { mutableStateOf(false) }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                isLoading = true
+                val content = extractTextFromEpub(context, uri)
+                isLoading = false
+                onStartReading(content)
+            }
+        }
+    }
+
+    Column(
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(Icons.Default.Book, contentDescription = null, modifier = Modifier.size(64.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Select an EPUB file from your device storage.")
+        Spacer(modifier = Modifier.height(16.dp))
+        if (isLoading) {
+            CircularProgressIndicator()
+        } else {
+            // Using generic type and filtering is safer, but mime type helps
+            Button(onClick = { launcher.launch("application/epub+zip") }) {
+                Text("Pick EPUB")
             }
         }
     }
