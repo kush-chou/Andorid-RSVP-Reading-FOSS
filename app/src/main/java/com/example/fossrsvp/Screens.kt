@@ -138,13 +138,15 @@ fun InputSelectionScreen(
         )
     }
 
-    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-        Box(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+
+
+    Column(modifier = modifier.fillMaxSize().padding(24.dp)) {
+        Box(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
             IconButton(
                 onClick = { showSettingsDialog = true },
                 modifier = Modifier.align(Alignment.CenterStart)
             ) {
-                Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(28.dp))
+                Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(32.dp))
             }
 
             Text(
@@ -422,9 +424,29 @@ fun GeminiChatInput(
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("AI Chat", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("AI Chat", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+            
+            if (history.isNotEmpty()) {
+                Button(
+                    onClick = { 
+                        history = emptyList()
+                        PersistenceManager.saveChatHistory(context, history)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("New Chat")
+                }
+            }
+        }
 
         if (settings.geminiApiKey.isBlank()) {
             ElevatedCard(
@@ -443,23 +465,53 @@ fun GeminiChatInput(
         // Chat History List
         Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 8.dp)) {
              Column(modifier = Modifier.verticalScroll(listState)) {
+                 if (history.isEmpty()) {
+                     Text(
+                         "Start a new conversation...", 
+                         modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp),
+                         color = Color.Gray
+                     )
+                 }
                  history.forEach { msg ->
                      val isUser = msg.role == "user"
-                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
+                     Row(
+                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), 
+                         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+                     ) {
+                         // Message Bubble
                          Surface(
                              shape = MaterialTheme.shapes.medium,
                              color = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                             modifier = Modifier.padding(4.dp).fillMaxWidth(0.8f)
+                             modifier = Modifier.fillMaxWidth(0.85f)
                          ) {
                              Column(modifier = Modifier.padding(12.dp)) {
+                                 // Message Content
                                  Text(msg.content, style = MaterialTheme.typography.bodyMedium)
-                                 if (!isUser) {
-                                     Spacer(modifier = Modifier.height(8.dp))
-                                     Button(
-                                         onClick = { onStartReading(msg.content, null, false, null) },
-                                         modifier = Modifier.height(32.dp)
+                                 
+                                 Spacer(modifier = Modifier.height(8.dp))
+                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                     // "Read This" Action (For AI only)
+                                     if (!isUser) {
+                                         Button(
+                                             onClick = { onStartReading(msg.content, null, false, null) },
+                                             modifier = Modifier.height(32.dp),
+                                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+                                         ) {
+                                             Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(14.dp))
+                                             Spacer(modifier = Modifier.width(4.dp))
+                                             Text("Read", fontSize = 12.sp)
+                                         }
+                                     }
+
+                                     // Delete Message Action
+                                     IconButton(
+                                         onClick = {
+                                             history = history.filter { it != msg }
+                                             PersistenceManager.saveChatHistory(context, history)
+                                         },
+                                         modifier = Modifier.size(32.dp)
                                      ) {
-                                         Text("Read This", fontSize = 10.sp)
+                                         Icon(Icons.Default.Close, contentDescription = "Delete", tint = Color.Gray, modifier = Modifier.size(16.dp))
                                      }
                                  }
                              }
