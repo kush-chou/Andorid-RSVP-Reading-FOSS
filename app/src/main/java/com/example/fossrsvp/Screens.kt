@@ -347,9 +347,13 @@ fun NavigableBookItem(book: Book, onOpen: () -> Unit, onDelete: () -> Unit) {
 
 @Composable
 fun WebInput(onStartReading: (String, String?, Boolean, String?) -> Unit, settings: AppSettings) {
-    var url by remember { mutableStateOf("https://") }
+    var url by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Smart Prefix Logic: Show "https://" ghost text unless user typed a protocol
+    val hasProtocol = url.startsWith("http://") || url.startsWith("https://")
+    val effectiveUrl = if (hasProtocol) url else "https://$url"
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -366,7 +370,10 @@ fun WebInput(onStartReading: (String, String?, Boolean, String?) -> Unit, settin
             label = { Text("Article URL") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            shape = MaterialTheme.shapes.medium
+            shape = MaterialTheme.shapes.medium,
+            prefix = if (!hasProtocol && url.isNotEmpty()) {
+                { Text("https://", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            } else null
         )
         
         Text(
@@ -385,12 +392,12 @@ fun WebInput(onStartReading: (String, String?, Boolean, String?) -> Unit, settin
             onClick = {
                 scope.launch {
                     isLoading = true
-                    val content = extractTextFromUrl(url)
+                    val content = extractTextFromUrl(effectiveUrl)
                     isLoading = false
                     onStartReading(content, null, false, null)
                 }
             },
-            enabled = !isLoading && url.length > 8,
+            enabled = !isLoading && url.isNotBlank(), // effective URL is likely valid if user typed anything
             modifier = Modifier.fillMaxWidth().height(56.dp)
         ) {
             Text("Fetch & Read", style = MaterialTheme.typography.titleMedium)
