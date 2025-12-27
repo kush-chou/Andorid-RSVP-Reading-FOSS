@@ -579,11 +579,17 @@ fun ReaderScreen(
                              speakText = speakText.replace(".", "")
                          }
                          
+                         // Calculate TTS Rate
+                         // Base rate 1.0 is roughly 150-180 WPM depending on engine.
+                         // We use 150 as a conservative baseline.
+                         val ttsRate = (settings.wpm / 150f).coerceIn(0.5f, 4.0f)
+                         
                          if (isTtsReady && tts != null) {
                             try {
                                 if (settings.useNeuralTts) {
-                                    NeuralTTSManager.speak(speakText, 1.0f)
+                                    NeuralTTSManager.speak(speakText, ttsRate)
                                 } else {
+                                    tts.setSpeechRate(ttsRate)
                                     tts.speak(speakText, TextToSpeech.QUEUE_FLUSH, null, null)
                                 }
                             } catch (e: Exception) {
