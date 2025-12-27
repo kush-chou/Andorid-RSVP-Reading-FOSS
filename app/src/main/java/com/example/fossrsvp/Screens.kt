@@ -87,6 +87,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -523,181 +525,90 @@ fun ReaderScreen(
 
     // Channel to signal TTS completion of a chunk
     val ttsChunkDoneChannel = remember { Channel<Unit>(Channel.CONFLATED) }
-
     var currentChunkTokenOffsets by remember { mutableStateOf<List<Int>>(emptyList()) }
     var currentChunkStartIndex by remember { mutableIntStateOf(0) }
 
-    // TTS Synchronization Logic
-    LaunchedEffect(tts) {
-        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
-            
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId == "RSVP_ACTIVE") {
-                    ttsChunkDoneChannel.trySend(Unit)
-                }
-            }
-            
-            @Suppress("DEPRECATION")
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) {
-                if (utteranceId == "RSVP_ACTIVE") {
-                    ttsChunkDoneChannel.trySend(Unit)
-                }
-            }
-
-            override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
-                if (utteranceId == "RSVP_ACTIVE") {
-                    val offsets = currentChunkTokenOffsets
-                    val baseIndex = currentChunkStartIndex
-                    for (i in 0 until offsets.size) {
-                        val tokenStart = offsets[i]
-                        val tokenEnd = if (i < offsets.size - 1) offsets[i+1] else Int.MAX_VALUE
-                        if (start in tokenStart until tokenEnd) {
-                            currentIndex = baseIndex + i
-                            break
-                        }
-                    }
-                }
-            }
-        })
+    // Moving Focus State for Sequential Reveal
+    var focusOffset by remember { mutableIntStateOf(0) }
+    
+    // Dynamic Chunking Size Calculation
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp
+    val dynamicSize = if (settings.chunkSize == 0) {
+        // Uses ~80dp per word as a safe heuristic for "Fit Screen"
+        (screenWidthDp / 80).coerceAtLeast(1)
+    } else {
+        settings.chunkSize
     }
 
-    LaunchedEffect(settings.voiceName, isTtsReady) {
-        if (isTtsReady && settings.voiceName.isNotEmpty()) {
-            val voice = tts?.voices?.find { it.name == settings.voiceName }
-            if (voice != null) {
-                tts?.voice = voice
-            }
-        }
-    }
+    LaunchedEffect(isPlaying, settings.wpm, currentIndex, settings.chunkSize) {
+        if (isPlaying) {
+             while (currentIndex < tokens.size && isPlaying) {
+                 // Determine current chunk size (Dynamic or Fixed)
+                 val currentChunkLimit = min(dynamicSize, tokens.size - currentIndex)
+                 
+                 // If using sequential reveal (chunk > 1), we iterate INSIDE the chunk
+                 // If chunk == 1, loop runs once, same as classic.
+                 
+                 // Reset focus offset if we are starting a NEW chunk traversal 
+                 // (handled by logic below, assumes focusOffset starts at 0 for new chunk)
+                 
+                 // Wait, we need to know if we are "in the middle" of a chunk from a pause?
+                 // If paused, we remember focusOffset.
+                 
+                 val chunkTokens = tokens.subList(currentIndex, currentIndex + currentChunkLimit)
+                 
+                 // Playback Loop for this Chunk
+                 while (focusOffset < currentChunkLimit && isPlaying) {
+                     val currentToken = chunkTokens[focusOffset]
+                     
+                     // TTS Trigger (Per Word)
+                     if (isTtsEnabled) {
+                         // Fix "1." pronunciation for single word logic
+                         var speakText = currentToken.word
+                         if (speakText.matches(Regex("\\d+\\."))) {
+                             speakText = speakText.replace(".", "")
+                         }
+                         
+                         if (isTtsReady && tts != null) {
+                            try {
+                                if (settings.useNeuralTts) {
+                                    NeuralTTSManager.speak(speakText, 1.0f)
+                                } else {
+                                    tts.speak(speakText, TextToSpeech.QUEUE_FLUSH, null, null)
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                         }
+                     }
 
-    // New Strict Stop Logic
-    LaunchedEffect(isPlaying, isTtsEnabled) {
-        if (!isPlaying && isTtsReady) {
-            tts?.stop()
-        }
-    }
-
-    LaunchedEffect(isPlaying, settings.wpm, isTtsEnabled) {
-        if (!isPlaying || tokens.isEmpty()) return@LaunchedEffect
-
-        // Smart ResumeLogic ... (omitted similar check)
-        if (isPlaying && currentIndex > 0) {
-             // ... existing smart rewind ...
-        }
-
-        if (isTtsEnabled) {
-            if (settings.useNeuralTts && NeuralTTSManager.isReady) {
-                // NEURAL TTS LOOP
-                while (isPlaying && currentIndex < tokens.size) {
-                    // Chunking for Neural TTS (Sentence based)
-                    var lookAhead = currentIndex
-                    while (lookAhead < tokens.size && lookAhead < currentIndex + 50) {
-                        val w = tokens[lookAhead].word
-                        lookAhead++
-                        if (w.endsWith(".") || w.endsWith("!") || w.endsWith("?")) break
-                    }
-                    val finalEnd = lookAhead
-                    
-                    val chunkTokens = tokens.subList(currentIndex, finalEnd)
-                     // Reconstruct text
-                    val sb = StringBuilder()
-                    chunkTokens.forEach { token ->
-                        val clean = token.word.replace(Regex("[*#_`]"), "")
-                        sb.append(clean).append(" ")
-                    }
-                    
-                    // Generate and Play
-                    val durationMs = NeuralTTSManager.speak(sb.toString(), 1.0f) // Speed control tricky for Piper, using 1.0 for now
-                    
-                    // Animate Words during playback
-                    val startTime = System.currentTimeMillis()
-                    val startIdx = currentIndex
-                    
-                    while (isPlaying && System.currentTimeMillis() - startTime < durationMs) {
-                        val elapsed = System.currentTimeMillis() - startTime
-                        val progress = elapsed.toFloat() / durationMs
-                        val relativeIndex = (progress * chunkTokens.size).toInt().coerceIn(0, chunkTokens.size - 1)
-                        currentIndex = startIdx + relativeIndex
-                        delay(16) // ~60fps update
-                    }
-                    
-                    if (isPlaying) {
-                        currentIndex = finalEnd
-                    } else {
-                        NeuralTTSManager.stop()
-                    }
-                }
-            } else if (isTtsReady) {
-                // SYSTEM TTS LOOP (Existing)
-                val maxTtsWpm = 450f
-                val effectiveTtsWpm = min(settings.wpm, maxTtsWpm)
-                val rate = (effectiveTtsWpm / 150f).coerceIn(0.5f, 3.0f)
-                tts?.setSpeechRate(rate)
-    
-                while (isPlaying && currentIndex < tokens.size) {
-                    // ... existing loop structure ...
-                     // Determine Chunk (Sentence or ~50 words)
-                    var lookAhead = currentIndex
-                    while (lookAhead < tokens.size && lookAhead < currentIndex + 50) {
-                        val w = tokens[lookAhead].word
-                        lookAhead++
-                        if (w.endsWith(".") || w.endsWith("!") || w.endsWith("?")) break
-                    }
-                    val finalEnd = lookAhead
-                    
-                    val chunkTokens = tokens.subList(currentIndex, finalEnd)
-                    
-                    val sb = StringBuilder()
-                    val offsets = mutableListOf<Int>()
-                    
-                    chunkTokens.forEach { token ->
-                        offsets.add(sb.length)
-                        val clean = token.word
-                            .replace("**", "")
-                            .replace("__", "")
-                            .replace("*", "")
-                            .replace("_", "")
-                            .replace("`", "")
-                            .replace("#", "")
-                        sb.append(clean).append(" ")
-                    }
-                    
-                    currentChunkTokenOffsets = offsets
-                    currentChunkStartIndex = currentIndex
-                    
-                    // Clear any previous completions
-                    while(ttsChunkDoneChannel.tryReceive().isSuccess) {}
-    
-                    if (!isPlaying) { tts?.stop(); break }
-    
-                    val params = Bundle()
-                    params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "RSVP_ACTIVE")
-                    tts?.speak(sb.toString(), TextToSpeech.QUEUE_FLUSH, params, "RSVP_ACTIVE")
-                    
-                    // Wait loop
-                    while (isPlaying) {
-                        val result = ttsChunkDoneChannel.tryReceive()
-                        if (result.isSuccess) {
-                            // Chunk finished naturally
-                            currentIndex = finalEnd
-                            break 
-                        }
-                        delay(50)
-                    }
-                }
-            }
-            isPlaying = false
-        } 
-        else {
-             // VISUAL ONLY LOOP
-             val baseDelayMillis = (60000 / settings.wpm).toLong()
-             while (isPlaying && currentIndex < tokens.size) {
-                 val currentToken = tokens[currentIndex]
-                 delay((baseDelayMillis * currentToken.delayMultiplier).toLong())
+                     // Delay Calculation
+                     val baseDelay = (60000 / settings.wpm).toLong()
+                     val finalDelay = (baseDelay * currentToken.delayMultiplier).toLong()
+                     
+                     delay(finalDelay)
+                     
+                     // Advance Focus
+                     if (isPlaying) { // Check again after delay
+                         focusOffset++
+                     }
+                 }
+                 
+                 // Chunk Finished?
+                 if (focusOffset >= currentChunkLimit) {
+                     currentIndex += currentChunkLimit
+                     focusOffset = 0 // Reset for next chunk
+                 }
+                 
+                 // Safety break
                  if (!isPlaying) break
-                 if (currentIndex < tokens.size - 1) currentIndex++ else isPlaying = false
+             }
+             
+             if (currentIndex >= tokens.size) {
+                 isPlaying = false
+                 currentIndex = 0 // Reset to start
+                 focusOffset = 0
              }
         }
     }
@@ -936,10 +847,18 @@ fun ReaderScreen(
                         val density = LocalDensity.current
                         val maxWidthPx = with(density) { this@BoxWithConstraints.maxWidth.toPx() }
 
+                         // Calculate current chunk tokens for display
+                        val currentChunkLimit = min(dynamicSize, tokens.size - currentIndex).coerceAtLeast(1)
+                        val displayTokens = if (tokens.isNotEmpty()) {
+                            // Safety measure: Ensure indices are valid
+                            val end = (currentIndex + currentChunkLimit).coerceAtMost(tokens.size)
+                            if (currentIndex < end) tokens.subList(currentIndex, end) else emptyList()
+                        } else emptyList()
+
                         RSVPWordDisplay(
-                            chunkMode = false,
-                            tokens = if(tokens.isNotEmpty()) listOf(tokens[currentIndex]) else listOf(RSVPToken("")),
-                            focusIndex = 0,
+                            chunkMode = settings.chunkSize != 1,
+                            tokens = displayTokens,
+                            focusIndex = focusOffset,
                             settings = settings,
                             maxWidthPx = maxWidthPx
                         )

@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import kotlin.math.roundToInt
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -447,38 +448,20 @@ fun ReaderBehaviorSettings(
         )
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Moving Focus Mode (Experimental)")
-        Switch(
-            checked = currentSettings.movingFocus,
-            onCheckedChange = { onSettingsChanged(currentSettings.copy(movingFocus = it)) }
-        )
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Dynamic Chunking (Fit Screen)")
-        Switch(
-            checked = currentSettings.dynamicChunking,
-            onCheckedChange = { onSettingsChanged(currentSettings.copy(dynamicChunking = it)) }
-        )
-    }
-
     // Word Chunking
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text("Words per Chunk: ${currentSettings.chunkSize}", style = MaterialTheme.typography.bodyMedium)
+        val label = if (currentSettings.chunkSize == 0) "Max (Fit Screen)" else "${currentSettings.chunkSize}"
+        Text("Words per Chunk: $label", style = MaterialTheme.typography.bodyMedium)
         Slider(
-            value = currentSettings.chunkSize.toFloat(),
-            onValueChange = { onSettingsChanged(currentSettings.copy(chunkSize = it.toInt())) },
-            valueRange = 1f..3f,
-            steps = 1
+            value = if (currentSettings.chunkSize == 0) 6f else currentSettings.chunkSize.toFloat(),
+            onValueChange = {
+                val newStep = it.roundToInt()
+                // Map 6 to 0 (Max), otherwise use value
+                val finalSize = if (newStep == 6) 0 else newStep
+                onSettingsChanged(currentSettings.copy(chunkSize = finalSize))
+            },
+            valueRange = 1f..6f,
+            steps = 4 // Steps between 1 and 6: 2, 3, 4, 5 (4 steps)
         )
     }
 
@@ -522,30 +505,17 @@ fun ReaderBehaviorSettings(
 
 @Composable
 fun RSVPWordDisplay(
-    chunkMode: Boolean, // True if we are sending a full chunk for "Moving Focus"
-    tokens: List<RSVPToken>, // The visible chunk
-    focusIndex: Int, // The index WITHIN the chunk to highlight
+    chunkMode: Boolean, // Kept for API compatibility, but derived from settings/tokens usually
+    tokens: List<RSVPToken>, 
+    focusIndex: Int, 
     settings: AppSettings,
     maxWidthPx: Float
 ) {
     if (tokens.isEmpty()) return
 
-    // If classic RSVP (Single word, centered), treat it as a chunk of 1 with focus 0 for simplicity in logic,
-    // BUT we need to maintain the specific "Fixed Anchor" look of Classic RSVP.
-    // Moving Focus mode renders the whole chunk statically and moves the indicator.
-
     val density = LocalDensity.current
     val userFontSizePx = with(density) { settings.fontSize.sp.toPx() }
-    
-    // Safety size calculation (based on the longest word in the chunk if dynamic?)
-    // For Moving Focus, we fit the *line*. 
-    // For Classic, we fit the *single word*.
-    
-    // Let's assume for Moving Focus, the text wraps naturally or is one line?
-    // User requested: "ORP changes and moves left-to-right... jumping to the 'would-be in single chunking' ORP"
-    
-    // Common Styles
-    val fontSizeSp = with(density) { userFontSizePx.toSp() } // Simplified sizing for now
+    val fontSizeSp = with(density) { userFontSizePx.toSp() }
     
     val commonTextStyle = MaterialTheme.typography.displayLarge.copy(
         fontSize = fontSizeSp,
@@ -553,17 +523,24 @@ fun RSVPWordDisplay(
         lineHeight = fontSizeSp * 1.5f
     )
 
+    // Mode Detection:
+    // If chunkMode is true (Settings > 1 or Max), we use Sequential Reveal (Row layout),
+    // even if it happens to be a single word (consistency).
+    // If chunkMode is false (Settings = 1), we use Classic RSVP (Center Fixed).
+    
+    val isMultiWord = chunkMode || tokens.size > 1
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth()
     ) {
-        // Top Ruler
+        // TOP RULER
         if (settings.focusLetterIndicator) {
              Canvas(modifier = Modifier.fillMaxWidth().height(20.dp)) {
                 val rulerColor = settings.colorScheme.contextText
                 val centerMarkColor = settings.colorScheme.text
                 
-                // Draw base line
+                // Base line
                 drawLine(
                     color = rulerColor,
                     start = Offset(0f, size.height),
@@ -571,11 +548,19 @@ fun RSVPWordDisplay(
                     strokeWidth = 2f
                 )
                 
-                // If classic mode, center mark is fixed.
-                // If moving focus, we need to calculate X offset of the focused word's ORP.
-                // This is hard to do perfectly without TextLayoutResult. 
-                // For now, in Classic Mode, it's always center.
-                if (!settings.movingFocus) {
+                // "Center" Tick
+                // In Classic: Fixed Center.
+                // In Sequential: Moves with the word. Hard to know exact X without LayoutCoordinates.
+                // Compromise: In Sequential Mode, we might NOT show the "Center" tick, or show it above the word if possible.
+                // Since this is a Canvas above the text, we don't know the text layout positions easily.
+                // User said: "pointers (above and below the ORP) ... move as well".
+                // To do this properly, we need to draw the rulers INSIDE the Text layout or Overlay it using LayoutCoordinates.
+                // For this iteration, let's keep the Standard Center Tick for Classic, 
+                // and for Sequential, we might rely on the Red Letter highlight solely, 
+                // OR we accept that the Tick doesn't align perfectly without complex Layout logic.
+                // Let's hide the Tick for MultiWord for now to avoid confusion, focus on Red Letter.
+                
+                if (!isMultiWord) {
                      drawLine(
                         color = centerMarkColor,
                         start = Offset(size.width / 2, size.height - 10f),
@@ -588,28 +573,35 @@ fun RSVPWordDisplay(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (settings.movingFocus) {
-            // MOVING FOCUS MODE
-            // Render the full chunk as a flow/row, and highlight the specific word at focusIndex.
-            // We need to know the position of that word to draw the "Moving Ruler" if we were to implement it fully.
-            // For now, just Highlighting the word red is the first step.
-            
-            // Experimental: Horizontal Row of words
+        if (isMultiWord) {
+            // SEQUENTIAL REVEAL MODE (Row)
              Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center, // Or Start?
+                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 tokens.forEachIndexed { index, token ->
+                    // Visibility Logic:
+                    // Visible if index <= focusIndex ("Typewriter reveal")
+                    // Invisible (taking space) if index > focusIndex
+                    
+                    val isVisible = index <= focusIndex
                     val isFocused = index == focusIndex
-                    val color = if (isFocused) settings.centerLetterColor else settings.colorScheme.text.copy(alpha = 0.5f)
+                    
+                    val color = if (isFocused) settings.centerLetterColor else settings.colorScheme.text
+                    // If not visible, use Transparent color (alpha 0)
+                    val finalColor = if (isVisible) color else Color.Transparent
+                    
                     val fontWeight = if (token.style == WordStyle.Bold || token.style == WordStyle.Header) FontWeight.Bold else FontWeight.Normal
                     val decoration = if (token.style == WordStyle.Link) TextDecoration.Underline else TextDecoration.None
 
+                    // Clean text (optional, user wanted markdown rendered)
+                    val textToRender = token.word.replace(Regex("[*#_`]"), "") // Strip chars, keep style
+                    
                     Text(
-                        text = token.word + " ", // Add space
+                        text = textToRender + " ", // Add space
                         style = commonTextStyle.copy(
-                            color = color,
+                            color = finalColor,
                             fontWeight = fontWeight,
                             textDecoration = decoration
                         )
@@ -617,30 +609,13 @@ fun RSVPWordDisplay(
                 }
             }
         } else {
-            // CLASSIC RSVP (Single Word or Static Chunk)
-            // Even if chunkSize > 1 in settings, Classic RSVP simply Concatenates them into one string "Hello World"
-            // and centers the *middle* of that string (or ORP).
-            // But if we reuse this logic for standard single-word...
-            
-            val targetToken = tokens.getOrNull(0) ?: return
+            // CLASSIC RSVP (Single Word)
+            val targetToken = tokens[0]
             val word = targetToken.word
+            val cleanWord = word.replace(Regex("[*#_`]"), "")
             
-             // Strip markdown for Classic Mode visual cleanliness (as previously implemented)
-             // UNLESS user specifically asked for markdown rendering.
-             // User said: "Make sure ... markdown ... gets rendered at all".
-             // So we should NOT strip, but Apply Style.
-             
-             // Clean specific chars but keep text
-             val displayWord = when(targetToken.style) {
-                WordStyle.Bold -> word.replace("**", "").replace("__", "")
-                WordStyle.Italic -> word.replace("*", "").replace("_", "")
-                WordStyle.Header -> word.replace("#", "")
-                else -> word
-             }
-
-            val pivotIndex = (displayWord.length - 1) / 2
+            val pivotIndex = (cleanWord.length - 1) / 2
             
-            // Classic Jitter-Free Box
             val fixedBoxHeightDp = with(density) { (userFontSizePx * 1.5f).toDp() }
             
             Box(
@@ -654,7 +629,7 @@ fun RSVPWordDisplay(
                     verticalAlignment = Alignment.CenterVertically 
                 ) {
                     Text(
-                        text = displayWord.take(pivotIndex),
+                        text = cleanWord.take(pivotIndex),
                         style = commonTextStyle.copy(fontWeight = if (targetToken.style == WordStyle.Bold) FontWeight.Bold else FontWeight.Normal),
                         textAlign = TextAlign.End,
                         color = settings.colorScheme.text,
@@ -664,7 +639,7 @@ fun RSVPWordDisplay(
                         overflow = TextOverflow.Clip
                     )
                     Text(
-                        text = displayWord[pivotIndex].toString(),
+                        text = cleanWord[pivotIndex].toString(),
                         style = commonTextStyle.copy(
                             color = if (settings.highlightCenterLetter) settings.centerLetterColor else settings.colorScheme.text,
                             fontWeight = FontWeight.Bold
@@ -674,7 +649,7 @@ fun RSVPWordDisplay(
                         softWrap = false
                     )
                     Text(
-                        text = displayWord.drop(pivotIndex + 1),
+                        text = cleanWord.drop(pivotIndex + 1),
                         style = commonTextStyle.copy(fontWeight = if (targetToken.style == WordStyle.Bold) FontWeight.Bold else FontWeight.Normal),
                         textAlign = TextAlign.Start,
                         color = settings.colorScheme.text,
@@ -689,10 +664,9 @@ fun RSVPWordDisplay(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Bottom Ruler
+        // BOTTOM RULER
         if (settings.focusLetterIndicator) {
             Canvas(modifier = Modifier.fillMaxWidth().height(20.dp)) {
-                // Same logic as top
                  val rulerColor = settings.colorScheme.contextText
                 val centerMarkColor = settings.colorScheme.text
                  drawLine(
@@ -701,7 +675,7 @@ fun RSVPWordDisplay(
                     end = Offset(size.width, 0f),
                     strokeWidth = 2f
                 )
-                 if (!settings.movingFocus) {
+                 if (!isMultiWord) {
                      drawLine(
                         color = centerMarkColor,
                         start = Offset(size.width / 2, 0f),

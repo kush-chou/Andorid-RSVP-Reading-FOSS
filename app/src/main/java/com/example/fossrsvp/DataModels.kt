@@ -23,8 +23,6 @@ data class AppSettings(
     val contextOpacity: Float = 0.5f,
     val highlightCenterLetter: Boolean = true,
     val focusLetterIndicator: Boolean = true,
-    val movingFocus: Boolean = false,
-    val dynamicChunking: Boolean = false,
     val centerLetterColor: Color = Color(0xFFFF9800),
     val wpmStep: Int = 25,
     val autoStartSeconds: Int = 2,
