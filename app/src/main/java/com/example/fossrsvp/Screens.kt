@@ -631,9 +631,10 @@ fun ReaderScreen(
     // Compact Mode Logic
     val isCompact = screenWidthDp < 400
     
-    // Effective width for text: Screen Width - (Horizontal Padding 64dp * 2 for arrows)
-    // We use a slightly safer padding to avoid edge-touching.
-    val effectiveMaxWidthPx = with(density) { (screenWidthDp - 140).dp.toPx() }
+    // Effective width for text: Screen Width - (Horizontal Padding)
+    // Arrows are ~64dp each side (48 size + 16 pad). 
+    // We increase safety margin to 160dp to absolutely ensure no overlap.
+    val effectiveMaxWidthPx = with(density) { (screenWidthDp - 160).dp.toPx() }
     val userFontSizePx = with(density) { settings.fontSize.sp.toPx() }
 
     LaunchedEffect(isPlaying, settings.wpm, currentIndex, settings.chunkSize) {
@@ -1226,20 +1227,19 @@ fun calculateFitCapacity(
     var currentWidth = 0f
     var count = 0
     
-    // Safety limit to prevent freezing on extremely long texts or weird states
-    val safetyLimit = 30 
+    // Safety limit to prevent freezing
+    // We also treat maxWidthPx conservatively (90%) because TextPaint measurement 
+    // might differ slightly from Compose render width.
+    val effectiveLimit = maxWidthPx * 0.9f
 
-    for (i in startIndex until tokens.size) {
-        if (count >= safetyLimit) break
+    for (i in startIndex until min(tokens.size, startIndex + 10)) {
+        val word = tokens[i].word + " " // Space padding
+        val width = paint.measureText(word)
         
-        val word = tokens[i].word
-        // Add space if not first word
-        val textToAdd = if (count == 0) word else " $word"
-        val width = paint.measureText(textToAdd)
-        
-        if (currentWidth + width > maxWidthPx) {
-            // If the VERY FIRST word doesn't fit, we must show it anyway to avoid partial hangs
-            if (count == 0) return 1
+        if (currentWidth + width <= effectiveLimit) {
+            currentWidth += width
+            count++
+        } else {
             break
         }
         currentWidth += width
