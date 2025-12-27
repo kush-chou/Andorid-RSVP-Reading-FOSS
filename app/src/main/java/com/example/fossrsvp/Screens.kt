@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -125,7 +126,7 @@ fun InputSelectionScreen(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    val tabs = listOf("Paste", "Books", "Web", "Ask AI")
+    val tabs = listOf("Paste", "Books", "Web", "Ask AI", "Stats")
 
     if (showSettingsDialog) {
         SettingsDialog(
@@ -178,6 +179,7 @@ fun InputSelectionScreen(
                             }
                             2 -> WebInput(onStartReading, settings)
                             3 -> GeminiChatInput(onStartReading, settings, context)
+                            4 -> StatisticsScreen(context)
                         }
                     }
                 }
@@ -197,6 +199,7 @@ fun InputSelectionScreen(
                                     1 -> Icon(Icons.Default.Book, contentDescription = null)
                                     2 -> Icon(Icons.Default.Language, contentDescription = null)
                                     3 -> Icon(Icons.Default.SmartToy, contentDescription = null)
+                                    4 -> Icon(Icons.Default.ShowChart, contentDescription = null)
                                 }
                             },
                             label = { Text(title) }
@@ -530,7 +533,12 @@ fun ReaderScreen(
 
     // Moving Focus State for Sequential Reveal
     var focusOffset by remember { mutableIntStateOf(0) }
-    
+
+    // Statistics Tracking
+    var activeReadingDuration by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var sessionStartTime by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val initialSessionIndex = remember { initialIndex }
+
     // Resources for measurement
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
@@ -539,6 +547,18 @@ fun ReaderScreen(
     // We use a slightly safer padding to avoid edge-touching.
     val effectiveMaxWidthPx = with(density) { (screenWidthDp - 140).dp.toPx() }
     val userFontSizePx = with(density) { settings.fontSize.sp.toPx() }
+
+    // Track Reading Session
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            sessionStartTime = System.currentTimeMillis()
+        } else {
+            if (sessionStartTime > 0) {
+                activeReadingDuration += System.currentTimeMillis() - sessionStartTime
+                sessionStartTime = 0
+            }
+        }
+    }
 
     LaunchedEffect(isPlaying, settings.wpm, currentIndex, settings.chunkSize) {
         if (isPlaying) {
@@ -629,9 +649,34 @@ fun ReaderScreen(
     }
 
     val focusRequester = remember { FocusRequester() }
-    BackHandler(onBack = { 
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Helper to finish session
+    fun finishSession() {
+        if (isPlaying && sessionStartTime > 0) {
+            activeReadingDuration += System.currentTimeMillis() - sessionStartTime
+        }
+
+        val wordsRead = currentIndex - initialSessionIndex
+        if (wordsRead > 10 && activeReadingDuration > 1000) { // Filter insignificant sessions
+            val durationSeconds = activeReadingDuration / 1000
+            val minutes = durationSeconds / 60f
+            val wpm = if (minutes > 0) wordsRead / minutes else 0f
+
+            val session = ReadingSession(
+                durationSeconds = durationSeconds,
+                wordsRead = wordsRead,
+                averageWpm = wpm
+            )
+            PersistenceManager.addReadingSession(context, session)
+        }
+    }
+
+    BackHandler(onBack = {
         tts?.stop()
-        onBack(currentIndex) 
+        finishSession()
+        onBack(currentIndex)
     })
 
     if (showSettingsDialog) {
@@ -666,6 +711,7 @@ fun ReaderScreen(
                         }
                         Key.Escape, Key.Q -> {
                             tts?.stop()
+                            finishSession()
                             onBack(currentIndex); true
                         }
                         else -> false

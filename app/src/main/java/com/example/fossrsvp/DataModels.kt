@@ -88,6 +88,13 @@ data class ChatMessage(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+data class ReadingSession(
+    val timestamp: Long = System.currentTimeMillis(),
+    val durationSeconds: Long,
+    val wordsRead: Int,
+    val averageWpm: Float
+)
+
 enum class ColorSchemeOption(val displayName: String, val background: Color, val text: Color, val contextText: Color) {
     WhiteOnBlack("White on Black", Color(0xFF222222), Color.White, Color.Gray),
     BlackOnWhite("Black on White", Color.White, Color.Black, Color.DarkGray),
