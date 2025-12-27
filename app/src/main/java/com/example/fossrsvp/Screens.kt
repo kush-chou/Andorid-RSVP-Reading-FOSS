@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -127,6 +128,9 @@ fun InputSelectionScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     val tabs = listOf("Paste", "Books", "Web", "Ask AI")
+    
+    val configuration = LocalConfiguration.current
+    val isCompact = configuration.screenWidthDp < 400
 
     if (showSettingsDialog) {
         SettingsDialog(
@@ -195,14 +199,16 @@ fun InputSelectionScreen(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
                             icon = {
+                                val iconSize = if (isCompact) 28.dp else 24.dp
                                 when(index) {
-                                    0 -> Icon(Icons.Default.ContentPaste, contentDescription = null)
-                                    1 -> Icon(Icons.Default.Book, contentDescription = null)
-                                    2 -> Icon(Icons.Default.Language, contentDescription = null)
-                                    3 -> Icon(Icons.Default.SmartToy, contentDescription = null)
+                                    0 -> Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(iconSize))
+                                    1 -> Icon(Icons.Default.Book, contentDescription = null, modifier = Modifier.size(iconSize))
+                                    2 -> Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(iconSize))
+                                    3 -> Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(iconSize))
                                 }
                             },
-                            label = { Text(title) }
+                            label = if (isCompact) null else { { Text(title) } },
+                            alwaysShowLabel = !isCompact
                         )
                     }
                 }
@@ -422,6 +428,9 @@ fun GeminiChatInput(
     
     val scope = rememberCoroutineScope()
     val listState = rememberScrollState()
+    
+    val configuration = LocalConfiguration.current
+    val isCompact = configuration.screenWidthDp < 400
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -495,12 +504,18 @@ fun GeminiChatInput(
                                      if (!isUser) {
                                          Button(
                                              onClick = { onStartReading(msg.content, null, false, null) },
-                                             modifier = Modifier.height(32.dp),
-                                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+                                             modifier = Modifier
+                                                 // Taller button for easier touch on compact phones
+                                                 .height(if (isCompact) 48.dp else 32.dp)
+                                                 // Ensure minimum width on compact
+                                                 .widthIn(min = if (isCompact) 80.dp else 0.dp),
+                                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = if (isCompact) 12.dp else 8.dp)
                                          ) {
-                                             Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(14.dp))
+                                             Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(if (isCompact) 20.dp else 14.dp))
                                              Spacer(modifier = Modifier.width(4.dp))
-                                             Text("Read", fontSize = 12.sp)
+                                             // On very small screens, keep text but maybe smaller? User wants "Read This" to be usable.
+                                             // Actually removing text might make it cryptic. Keeping text but bigger button is better.
+                                             Text("Read", fontSize = if (isCompact) 14.sp else 12.sp)
                                          }
                                      }
 
@@ -589,9 +604,23 @@ fun ReaderScreen(
 
     // Channel to signal TTS completion of a chunk
     val ttsChunkDoneChannel = remember { Channel<Unit>(Channel.CONFLATED) }
+    
+    // Set up TTS Listener
+    LaunchedEffect(tts) {
+        tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onDone(utteranceId: String?) {
+                ttsChunkDoneChannel.trySend(Unit) 
+            }
+            override fun onError(utteranceId: String?) {
+                ttsChunkDoneChannel.trySend(Unit) // Prevent hanging on error
+            }
+        })
+    }
+    
     var currentChunkTokenOffsets by remember { mutableStateOf<List<Int>>(emptyList()) }
     var currentChunkStartIndex by remember { mutableIntStateOf(0) }
-
+    
     // Moving Focus State for Sequential Reveal
     var focusOffset by remember { mutableIntStateOf(0) }
     
@@ -599,6 +628,9 @@ fun ReaderScreen(
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
+    // Compact Mode Logic
+    val isCompact = screenWidthDp < 400
+    
     // Effective width for text: Screen Width - (Horizontal Padding 64dp * 2 for arrows)
     // We use a slightly safer padding to avoid edge-touching.
     val effectiveMaxWidthPx = with(density) { (screenWidthDp - 140).dp.toPx() }
