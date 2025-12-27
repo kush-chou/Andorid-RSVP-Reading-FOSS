@@ -160,7 +160,8 @@ fun RSVPApp(modifier: Modifier = Modifier) {
                         currentBookUri = null // Transient reading (Paste/Web)
                     }
 
-                    tokens = parseMarkdownToTokens(text, settings.chunkSize)
+                    // Always parse into single tokens. Chunking is handled dynamically in ReaderScreen.
+                    tokens = parseMarkdownToTokens(text, 1)
                     
                     // Update total tokens for the book if newly added or updated
                     if (currentBookUri != null) {
