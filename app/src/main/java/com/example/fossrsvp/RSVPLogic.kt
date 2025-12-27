@@ -53,6 +53,11 @@ suspend fun parseMarkdownToTokens(text: String, chunkSize: Int = 1): List<RSVPTo
             word = word.replace("`", "")
             style = WordStyle.Code
         }
+        else if (word.startsWith("[[IMG:") && word.endsWith("]]")) {
+            val url = word.removePrefix("[[IMG:").removeSuffix("]]")
+            rawTokens.add(RSVPToken(word = "[IMAGE]", type = TokenType.Image, imageUrl = url, delayMultiplier = 0f)) // Zero delay, logic will pause
+            continue
+        }
         else if (word.startsWith("#")) {
             word = word.trimStart('#')
             style = WordStyle.Header
@@ -157,27 +162,52 @@ suspend fun extractTextFromUrl(url: String): String = withContext(Dispatchers.IO
             
         // Smart Cleaning Algorithm
         
-        // 1. Remove obvious clutter
+        // 1. Remove obvious clutter but KEEP images
         doc.select("script, style, nav, footer, header, aside, iframe, noscript").remove()
         
         // 2. Identify main content container
-        // Heuristic: Look for long paragraphs <p>
-        val paragraphs = doc.select("p")
+        // Heuristic: Look for long paragraphs <p> OR images inside content divs
+        val contentElements = doc.select("p, img")
         val contentBuilder = StringBuilder()
         
-        // Filter out short snippets (likely menu items or captions)
-        for (p in paragraphs) {
-            val text = p.text().trim()
-            if (text.length > 40) { // arbitrary threshold for "meaningful sentence"
-                contentBuilder.append(text).append("\n\n")
-            }
+        for (element in contentElements) {
+             if (element.tagName() == "img") {
+                 val src = element.absUrl("src")
+                 val alt = element.attr("alt").lowercase()
+                 val width = element.attr("width").toIntOrNull() ?: 999
+                 val height = element.attr("height").toIntOrNull() ?: 999
+                 
+                 // Smart Ad/Icon Filtering
+                 val isIcon = width < 50 || height < 50
+                 val isAdKeyword = src.contains("doubleclick") || src.contains("adserver") || src.contains("banner") || 
+                                  src.contains("pixel") || src.contains("tracker") || src.contains("shim.gif")
+                 val isExplicitAd = alt.contains("sponsored") || alt.contains("advertisement")
+                 
+                 if (src.isNotBlank() && !isIcon && !isAdKeyword && !isExplicitAd) {
+                     // Add special token for Image
+                     contentBuilder.append("\n\n[[IMG:$src]]\n\n")
+                 }
+             } else {
+                 val text = element.text().trim()
+                 if (text.length > 40) { // arbitrary threshold for "meaningful sentence"
+                     contentBuilder.append(text).append("\n\n")
+                 }
+             }
         }
         
         val cleanedText = contentBuilder.toString()
         
         if (cleanedText.length < 200) {
-            // Fallback: If heuristic failed, just dump body text
-             doc.body().text()
+            // Fallback: If heuristic failed, look for images in body too
+             val bodyText = doc.body().text()
+             // Simple append of images found in body
+             val bodyImages = doc.select("img")
+             val imgBuilder = StringBuilder()
+             for(img in bodyImages) {
+                 val src = img.absUrl("src")
+                 if(src.isNotBlank()) imgBuilder.append("\n[[IMG:$src]]\n")
+             }
+             bodyText + "\n" + imgBuilder.toString()
         } else {
             cleanedText
         }

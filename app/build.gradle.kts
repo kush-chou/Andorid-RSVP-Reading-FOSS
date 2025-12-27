@@ -58,6 +58,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.6.8") 
     implementation("com.google.code.gson:gson:2.10.1")
     implementation(files("libs/sherpa-onnx.aar"))
+    implementation("io.coil-kt:coil-compose:2.6.0")
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

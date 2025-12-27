@@ -9,10 +9,16 @@ enum class WordStyle {
     Normal, Bold, Italic, BoldItalic, Code, Header, Link
 }
 
+enum class TokenType {
+    Text, Image, Table
+}
+
 data class RSVPToken(
     val word: String,
     val style: WordStyle = WordStyle.Normal,
-    val delayMultiplier: Float = 1.0f
+    val delayMultiplier: Float = 1.0f,
+    val type: TokenType = TokenType.Text,
+    val imageUrl: String? = null
 )
 
 data class AppSettings(

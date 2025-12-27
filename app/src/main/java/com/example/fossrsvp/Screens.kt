@@ -14,6 +14,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -1098,11 +1099,73 @@ fun ReaderScreen(
                             modifier = Modifier.clickable { currentIndex = 0 }
                         )
                     }
-                    Text("", modifier = Modifier.width(60.dp))
+// ... inside ReaderScreen Box ...
+        if (tokens.isNotEmpty() && currentIndex < tokens.size) {
+            val currentToken = tokens[currentIndex.coerceAtMost(tokens.size - 1)]
+             // Check if current token (or any in chunk) is image
+             // For chunk > 1, this is tricky, but pause logic stops exactly at image token.
+             // Actually, simple logic: check current focused token.
+             
+             // WE NEED A WAY TO DETECT IMAGE STATE from the Composable scope
+        }
+        
+    } // End of ReaderScreen content Box
+    
+    // IMAGE OVERLAY
+    // We check if the *current active token* is an image.
+    if (tokens.isNotEmpty() && currentIndex < tokens.size) {
+        // If sequential reveal is on, we need to check sub-token? 
+        // No, current logic pauses loop. Visuals are updated.
+        // But we need to check the EXACT token at focusOffset if chunking.
+        
+        // Wait, loop uses focusOffset. But UI uses currentIndex + focusOffset logic inside RSVPWordDisplay.
+        // Simpler: Just check if we are Paused AND current token is Image type.
+        
+        val actualTokenIndex = (currentIndex + focusOffset).coerceAtMost(tokens.size - 1)
+        val activeToken = tokens[actualTokenIndex]
+        
+        if (!isPlaying && activeToken.type == TokenType.Image && activeToken.imageUrl != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.9f))
+                    .clickable { /* Absorb clicks */ },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    coil.compose.AsyncImage(
+                        model = activeToken.imageUrl,
+                        contentDescription = "Content Image",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f) // Takes most space
+                            .padding(16.dp),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    )
+                    
+                    Button(
+                        onClick = { 
+                            // Skip the image token and resume
+                            if (focusOffset < tokens.size - currentIndex - 1) {
+                                focusOffset++ // Next word in chunk (rare for image)
+                            } else {
+                                currentIndex++ 
+                                focusOffset = 0
+                            }
+                            isPlaying = true 
+                        },
+                        modifier = Modifier.padding(32.dp).fillMaxWidth().height(56.dp)
+                    ) {
+                        Text("Continue Reading")
+                    }
                 }
             }
         }
     }
+}
+
+    }
+}
 }
 
 // Helper function for dynamic chunking
