@@ -604,7 +604,9 @@ fun RSVPWordDisplay(
                             color = finalColor,
                             fontWeight = fontWeight,
                             textDecoration = decoration
-                        )
+                        ),
+                        softWrap = false,
+                        maxLines = 1
                     )
                 }
             }

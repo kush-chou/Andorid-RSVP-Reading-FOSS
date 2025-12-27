@@ -531,21 +531,30 @@ fun ReaderScreen(
     // Moving Focus State for Sequential Reveal
     var focusOffset by remember { mutableIntStateOf(0) }
     
-    // Dynamic Chunking Size Calculation
+    // Resources for measurement
+    val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
-    val dynamicSize = if (settings.chunkSize == 0) {
-        // Uses ~80dp per word as a safe heuristic for "Fit Screen"
-        (screenWidthDp / 80).coerceAtLeast(1)
-    } else {
-        settings.chunkSize
-    }
+    // Effective width for text: Screen Width - (Horizontal Padding 64dp * 2 for arrows)
+    // We use a slightly safer padding to avoid edge-touching.
+    val effectiveMaxWidthPx = with(density) { (screenWidthDp - 140).dp.toPx() }
+    val userFontSizePx = with(density) { settings.fontSize.sp.toPx() }
 
     LaunchedEffect(isPlaying, settings.wpm, currentIndex, settings.chunkSize) {
         if (isPlaying) {
              while (currentIndex < tokens.size && isPlaying) {
                  // Determine current chunk size (Dynamic or Fixed)
-                 val currentChunkLimit = min(dynamicSize, tokens.size - currentIndex)
+                 val currentChunkLimit = if (settings.chunkSize == 0) {
+                     calculateFitCapacity(
+                         tokens = tokens, 
+                         startIndex = currentIndex, 
+                         maxWidthPx = effectiveMaxWidthPx, 
+                         fontSizePx = userFontSizePx, 
+                         fontFamily = settings.font.fontFamily
+                     )
+                 } else {
+                     min(settings.chunkSize, tokens.size - currentIndex)
+                 }
                  
                  // If using sequential reveal (chunk > 1), we iterate INSIDE the chunk
                  // If chunk == 1, loop runs once, same as classic.
@@ -844,11 +853,22 @@ fun ReaderScreen(
                             .align(Alignment.Center)
                             .padding(horizontal = 64.dp)
                     ) {
-                        val density = LocalDensity.current
+                         val density = LocalDensity.current
                         val maxWidthPx = with(density) { this@BoxWithConstraints.maxWidth.toPx() }
 
                          // Calculate current chunk tokens for display
-                        val currentChunkLimit = min(dynamicSize, tokens.size - currentIndex).coerceAtLeast(1)
+                        val currentChunkLimit = if (settings.chunkSize == 0) {
+                             calculateFitCapacity(
+                                 tokens = tokens, 
+                                 startIndex = currentIndex, 
+                                 maxWidthPx = with(density) { (configuration.screenWidthDp - 140).dp.toPx() }, // Use global screen width calculation for consistency with loop
+                                 fontSizePx = with(density) { settings.fontSize.sp.toPx() }, 
+                                 fontFamily = settings.font.fontFamily
+                             )
+                        } else {
+                            min(settings.chunkSize, tokens.size - currentIndex)
+                        }
+                        
                         val displayTokens = if (tokens.isNotEmpty()) {
                             // Safety measure: Ensure indices are valid
                             val end = (currentIndex + currentChunkLimit).coerceAtMost(tokens.size)
@@ -905,8 +925,24 @@ fun ReaderScreen(
                         Text(
                             text = buildAnnotatedString {
                                 val contextRange = if (settings.contextStyle == ContextStyleOption.CurrentLine) 8 else 30
-                                val start = (currentIndex + 1).coerceAtMost(tokens.size)
-                                val end = (currentIndex + contextRange).coerceAtMost(tokens.size)
+                                
+                                // Re-calculate current chunk size to know what to skip.
+                                // NOTE: We use the same parameters as the main display.
+                                val density = LocalDensity.current
+                                val currentChunkSize = if (settings.chunkSize == 0) {
+                                     calculateFitCapacity(
+                                         tokens = tokens, 
+                                         startIndex = currentIndex, 
+                                         maxWidthPx = with(density) { (configuration.screenWidthDp - 140).dp.toPx() }, 
+                                         fontSizePx = with(density) { settings.fontSize.sp.toPx() }, 
+                                         fontFamily = settings.font.fontFamily
+                                     )
+                                } else {
+                                    min(settings.chunkSize, tokens.size - currentIndex)
+                                }
+                                
+                                val start = (currentIndex + currentChunkSize).coerceAtMost(tokens.size)
+                                val end = (start + contextRange).coerceAtMost(tokens.size)
                                 for (i in start until end) {
                                     val token = tokens[i]
                                     val fontWeight = when(token.style) {
@@ -1002,4 +1038,48 @@ fun ReaderScreen(
             }
         }
     }
+}
+
+// Helper function for dynamic chunking
+fun calculateFitCapacity(
+    tokens: List<RSVPToken>,
+    startIndex: Int,
+    maxWidthPx: Float,
+    fontSizePx: Float,
+    fontFamily: androidx.compose.ui.text.font.FontFamily
+): Int {
+    if (startIndex >= tokens.size) return 0
+    
+    val paint = android.text.TextPaint()
+    paint.textSize = fontSizePx
+    paint.typeface = when(fontFamily) {
+        androidx.compose.ui.text.font.FontFamily.Serif -> android.graphics.Typeface.SERIF
+        androidx.compose.ui.text.font.FontFamily.SansSerif -> android.graphics.Typeface.SANS_SERIF
+        androidx.compose.ui.text.font.FontFamily.Monospace -> android.graphics.Typeface.MONOSPACE
+        else -> android.graphics.Typeface.DEFAULT
+    }
+
+    var currentWidth = 0f
+    var count = 0
+    
+    // Safety limit to prevent freezing on extremely long texts or weird states
+    val safetyLimit = 30 
+
+    for (i in startIndex until tokens.size) {
+        if (count >= safetyLimit) break
+        
+        val word = tokens[i].word
+        // Add space if not first word
+        val textToAdd = if (count == 0) word else " $word"
+        val width = paint.measureText(textToAdd)
+        
+        if (currentWidth + width > maxWidthPx) {
+            // If the VERY FIRST word doesn't fit, we must show it anyway to avoid partial hangs
+            if (count == 0) return 1
+            break
+        }
+        currentWidth += width
+        count++
+    }
+    return count.coerceAtLeast(1)
 }
