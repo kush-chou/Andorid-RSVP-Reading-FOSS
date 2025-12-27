@@ -68,32 +68,42 @@ object VoiceDownloader {
     }
 
     private fun downloadFile(urlStr: String, file: File, onProgress: ((Float) -> Unit)? = null) {
-        URL(urlStr).openStream().use { input ->
-            FileOutputStream(file).use { output ->
-                val buffer = ByteArray(4 * 1024)
-                var bytesRead: Int
-                var totalBytesRead = 0L
-                // We need content length for progress, but simple URL stream might not give it easily without connection check. 
-                // For simplicity, we assume generic progress or just download.
-                // To get real progress, need URLConnection.
-                
-                val connection = URL(urlStr).openConnection()
-                val contentLength = connection.contentLengthLong
-                
-                connection.getInputStream().use { connInput -> 
-                     // Re-open stream? No, just use the one we got if possible, or just use connection.getInputStream()
-                     // Let's rely on the connection stream.
-                     var inputStreamToUse = connInput
-                     
-                     while (inputStreamToUse.read(buffer).also { bytesRead = it } != -1) {
-                         output.write(buffer, 0, bytesRead)
-                         totalBytesRead += bytesRead
-                         if (contentLength > 0 && onProgress != null) {
-                             onProgress(totalBytesRead.toFloat() / contentLength)
-                         }
-                     }
+        val url = URL(urlStr)
+        val connection = url.openConnection() as java.net.HttpURLConnection
+        
+        try {
+            connection.instanceFollowRedirects = true
+            connection.connectTimeout = 10000 // 10 seconds
+            connection.readTimeout = 30000    // 30 seconds
+            connection.requestMethod = "GET"
+            connection.doInput = true
+            
+            connection.connect()
+            
+            val responseCode = connection.responseCode
+            if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
+                throw java.io.IOException("Server returned status: $responseCode for URL: $urlStr")
+            }
+            
+            val contentLength = connection.contentLengthLong
+            
+            connection.inputStream.use { input ->
+                FileOutputStream(file).use { output ->
+                    val buffer = ByteArray(8 * 1024)
+                    var bytesRead: Int
+                    var totalBytesRead = 0L
+                    
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        totalBytesRead += bytesRead
+                        if (contentLength > 0 && onProgress != null) {
+                            onProgress(totalBytesRead.toFloat() / contentLength)
+                        }
+                    }
                 }
             }
+        } finally {
+            connection.disconnect()
         }
     }
 }
