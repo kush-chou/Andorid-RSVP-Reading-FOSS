@@ -1,0 +1,28 @@
+FOSS RSVP is a privacy-first, high-performance speed reading application designed to help you consume content faster using the Rapid Serial Visual Presentation (RSVP) method.
+
+**Key Features:**
+
+📚 **Universal Library**
+- Import and read **PDFs** and **EPUB** eBooks.
+- Smart Resume: Intelligently rewinds to the start of the sentence so you never lose context.
+- Your library progress is saved automatically.
+
+🗣️ **Premium Neural TTS (Offline)**
+- Includes the "Amy" Neural Voice (Piper) for high-quality, natural-sounding reading.
+- Works 100% offline. No data usage, no tracking.
+- Syncs perfectly with the visual speed reader.
+
+🧠 **AI-Powered**
+- "Ask AI" chat: Summarize complex texts in seconds (Powered by Gemini).
+- Chat History: Keep track of your AI conversations.
+
+🌐 **Smart Web Reader**
+- Distraction-free reading. FOSS RSVP cleans up web articles using advanced processing (Jsoup) to show you only the text that matters.
+
+**Privacy First**
+- Open Source.
+- No ads.
+- No tracking.
+- Your data stays on your device.
+
+Experience the future of reading with FOSS RSVP.

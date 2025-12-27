@@ -56,6 +56,8 @@ dependencies {
     // Use com.tom-roush instead of com.tom_roush
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("androidx.compose.material:material-icons-extended:1.6.8") 
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation(files("libs/sherpa-onnx.aar"))
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

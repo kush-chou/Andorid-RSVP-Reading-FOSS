@@ -1,0 +1,1 @@
+High-speed RSVP reader with Offline Neural TTS, PDF/EPUB support, and AI summary.
