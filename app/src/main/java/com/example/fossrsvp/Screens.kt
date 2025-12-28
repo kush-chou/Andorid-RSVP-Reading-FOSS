@@ -44,7 +44,11 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
@@ -55,6 +59,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,7 +76,9 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -123,7 +130,8 @@ fun InputSelectionScreen(
     libraryBooks: List<Book>,
     context: Context,
     modifier: Modifier = Modifier,
-    onManageVoices: () -> Unit
+    onManageVoices: () -> Unit,
+    onOpenStats: (Book) -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -179,10 +187,15 @@ fun InputSelectionScreen(
                     Crossfade(targetState = selectedTab, label = "InputTabChange") { tabIndex ->
                         when(tabIndex) {
                             0 -> PasteInput(onStartReading)
-                            1 -> LibraryInput(onStartReading, libraryBooks, context) { updatedBooks ->
-                                // Callback safely ignored as parent updates automatically
-                                PersistenceManager.saveLibrary(context, updatedBooks)
-                            }
+                            1 -> LibraryInput(
+                                onStartReading = onStartReading,
+                                books = libraryBooks,
+                                context = context,
+                                onUpdateLibrary = { updatedBooks ->
+                                    PersistenceManager.saveLibrary(context, updatedBooks)
+                                },
+                                onOpenStats = onOpenStats
+                            )
                             2 -> WebInput(onStartReading, settings)
                             3 -> GeminiChatInput(onStartReading, settings, context)
                         }
@@ -255,7 +268,8 @@ fun LibraryInput(
     onStartReading: (String, String?, Boolean, String?) -> Unit,
     books: List<Book>,
     context: Context,
-    onUpdateLibrary: (List<Book>) -> Unit
+    onUpdateLibrary: (List<Book>) -> Unit,
+    onOpenStats: (Book) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
@@ -312,17 +326,24 @@ fun LibraryInput(
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(books.sortedByDescending { it.addedAt }) { book ->
-                    NavigableBookItem(book, onOpen = {
-                         scope.launch {
-                             isLoading = true
-                             val uri = Uri.parse(book.uri)
-                             val content = if (book.isEpub) extractTextFromEpub(context, uri) else extractTextFromPdf(context, uri)
-                             isLoading = false
-                             onStartReading(content, book.uri, book.isEpub, book.title)
-                         }
-                    }, onDelete = {
-                        onUpdateLibrary(books.filter { it.uri != book.uri })
-                    })
+                    NavigableBookItem(
+                        book = book,
+                        onOpen = {
+                             scope.launch {
+                                 isLoading = true
+                                 val uri = Uri.parse(book.uri)
+                                 val content = if (book.isEpub) extractTextFromEpub(context, uri) else extractTextFromPdf(context, uri)
+                                 isLoading = false
+                                 onStartReading(content, book.uri, book.isEpub, book.title)
+                             }
+                        },
+                        onDelete = {
+                            onUpdateLibrary(books.filter { it.uri != book.uri })
+                        },
+                        onStats = {
+                            onOpenStats(book)
+                        }
+                    )
                 }
             }
         }
@@ -330,22 +351,24 @@ fun LibraryInput(
 }
 
 @Composable
-fun NavigableBookItem(book: Book, onOpen: () -> Unit, onDelete: () -> Unit) {
+fun NavigableBookItem(book: Book, onOpen: () -> Unit, onDelete: () -> Unit, onStats: () -> Unit) {
     ElevatedCard(
-        onClick = onOpen,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier.padding(16.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-             Column(modifier = Modifier.weight(1f)) {
+             Column(modifier = Modifier.weight(1f).clickable { onOpen() }) {
                  Text(book.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                  val progress = if (book.totalTokens > 0) book.progressIndex.toFloat() / book.totalTokens else 0f
                  Spacer(modifier = Modifier.height(8.dp))
                  LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth().height(4.dp))
                  Spacer(modifier = Modifier.height(4.dp))
                  Text("${(progress * 100).toInt()}% Completed", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+             }
+             IconButton(onClick = onStats) {
+                 Icon(Icons.Default.BarChart, contentDescription = "Statistics", tint = MaterialTheme.colorScheme.primary)
              }
              IconButton(onClick = onDelete) {
                  Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
@@ -592,15 +615,61 @@ fun ReaderScreen(
     settings: AppSettings,
     onSettingsChanged: (AppSettings) -> Unit,
     onBack: (Int) -> Unit,
+    toggleImmersiveMode: (Boolean) -> Unit = {},
     tts: TextToSpeech?,
     isTtsReady: Boolean,
     modifier: Modifier = Modifier,
-    onManageVoices: () -> Unit
+    onManageVoices: () -> Unit,
+    bookmarks: List<Bookmark> = emptyList(),
+    onBookmarksChanged: (List<Bookmark>) -> Unit = {},
+    onSessionComplete: (ReadingSession) -> Unit = {}
 ) {
     var currentIndex by remember { mutableIntStateOf(initialIndex) }
     var isPlaying by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showBookmarksDialog by remember { mutableStateOf(false) }
     var isTtsEnabled by remember { mutableStateOf(false) }
+    var isImmersive by remember { mutableStateOf(false) }
+
+    // Session Tracking
+    var sessionStartTime by remember { mutableStateOf(0L) }
+    var wordsReadInSession by remember { mutableIntStateOf(0) }
+
+    fun endSession() {
+        if (sessionStartTime > 0) {
+            val duration = (System.currentTimeMillis() - sessionStartTime) / 1000
+            if (duration > 1 && wordsReadInSession > 0) {
+                onSessionComplete(
+                    ReadingSession(
+                        timestamp = sessionStartTime,
+                        durationSeconds = duration,
+                        wordsRead = wordsReadInSession,
+                        wpm = settings.wpm.toInt()
+                    )
+                )
+            }
+            wordsReadInSession = 0
+            sessionStartTime = 0
+        }
+    }
+
+    // Start session when playing starts
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            sessionStartTime = System.currentTimeMillis()
+        } else {
+            endSession()
+        }
+    }
+
+    // Ensure session ends if user navigates back while playing
+    DisposableEffect(Unit) {
+        onDispose {
+            if (isPlaying) {
+                endSession()
+            }
+        }
+    }
 
     // Channel to signal TTS completion of a chunk
     val ttsChunkDoneChannel = remember { Channel<Unit>(Channel.CONFLATED) }
@@ -704,6 +773,7 @@ fun ReaderScreen(
                      // Advance Focus
                      if (isPlaying) { // Check again after delay
                          focusOffset++
+                         wordsReadInSession++
                      }
                  }
                  
@@ -739,6 +809,17 @@ fun ReaderScreen(
             tts = tts,
             isTtsReady = isTtsReady,
             onManageVoices = onManageVoices
+        )
+    }
+
+    if (showBookmarksDialog) {
+        BookmarksDialog(
+            bookmarks = bookmarks,
+            onJumpTo = { index -> currentIndex = index },
+            onDelete = { bookmark ->
+                onBookmarksChanged(bookmarks.filter { it.index != bookmark.index })
+            },
+            onDismiss = { showBookmarksDialog = false }
         )
     }
 
@@ -860,6 +941,47 @@ fun ReaderScreen(
                         Text("A+", color = settings.colorScheme.contextText, fontSize = 12.sp)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
+
+                    // Bookmark Button
+                    val isBookmarked = bookmarks.any { it.index == currentIndex }
+                    IconButton(
+                        onClick = {
+                            if (isBookmarked) {
+                                onBookmarksChanged(bookmarks.filter { it.index != currentIndex })
+                            } else {
+                                val snippetStart = currentIndex
+                                val snippetEnd = min(currentIndex + 5, tokens.size)
+                                val snippet = tokens.subList(snippetStart, snippetEnd).joinToString(" ") { it.word }
+                                val newBookmark = Bookmark(index = currentIndex, snippet = snippet)
+                                onBookmarksChanged(bookmarks + newBookmark)
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = "Bookmark",
+                            tint = settings.colorScheme.contextText
+                        )
+                    }
+
+                    IconButton(onClick = { showBookmarksDialog = true }) {
+                        Icon(Icons.Default.Bookmarks, contentDescription = "Bookmarks", tint = settings.colorScheme.contextText)
+                    }
+
+                    // Immersive Mode Toggle
+                    IconButton(
+                        onClick = {
+                            isImmersive = !isImmersive
+                            toggleImmersiveMode(isImmersive)
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (isImmersive) Icons.Default.Close else Icons.Default.Add, // Placeholder or use specialized icons if available
+                            contentDescription = if (isImmersive) "Exit Fullscreen" else "Enter Fullscreen",
+                            tint = settings.colorScheme.contextText
+                        )
+                    }
+
                     IconButton(onClick = { showSettingsDialog = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = settings.colorScheme.contextText)
                     }
@@ -1203,6 +1325,59 @@ fun ReaderScreen(
 
     }
 }
+}
+
+@Composable
+fun BookmarksDialog(
+    bookmarks: List<Bookmark>,
+    onJumpTo: (Int) -> Unit,
+    onDelete: (Bookmark) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Bookmarks") },
+        text = {
+            if (bookmarks.isEmpty()) {
+                Text("No bookmarks yet.")
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(bookmarks.sortedBy { it.index }) { bookmark ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onJumpTo(bookmark.index)
+                                    onDismiss()
+                                }
+                                .padding(8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Position ${bookmark.index}",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Text(
+                                    text = bookmark.snippet,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(onClick = { onDelete(bookmark) }) {
+                                Icon(Icons.Default.Delete, "Delete")
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
 }
 
 // Helper function for dynamic chunking
