@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,7 +54,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
@@ -65,12 +67,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -112,6 +116,8 @@ import java.io.File
 import java.util.Locale
 import kotlin.math.min
 
+val PremiumRadius = 28.dp
+
 @Suppress("UNUSED_VALUE")
 @Composable
 fun InputSelectionScreen(
@@ -123,14 +129,15 @@ fun InputSelectionScreen(
     libraryBooks: List<Book>,
     context: Context,
     modifier: Modifier = Modifier,
-    onManageVoices: () -> Unit
+    onManageVoices: () -> Unit,
+    scaffoldPadding: androidx.compose.foundation.layout.PaddingValues
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     val tabs = listOf("Paste", "Books", "Web", "Ask AI")
     
     val configuration = LocalConfiguration.current
-    val isCompact = configuration.screenWidthDp < 400
+    val isCompact = configuration.screenWidthDp < 480
 
     if (showSettingsDialog) {
         SettingsDialog(
@@ -145,8 +152,33 @@ fun InputSelectionScreen(
 
 
 
-    Column(modifier = modifier.fillMaxSize().padding(24.dp)) {
-        Box(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+    // Golden Ratio Spacing (phi ≈ 1.618)
+    val screenPadding = if (isCompact) 13.dp else 21.dp
+    val headerPadding = if (isCompact) 13.dp else 26.dp
+    
+    val topPadding = scaffoldPadding.calculateTopPadding()
+
+    val bottomSystemPadding = scaffoldPadding.calculateBottomPadding()
+    val navBarReservedHeight = 84.dp
+    val totalNavBarHeight = bottomSystemPadding + navBarReservedHeight
+    
+    val imePaddingRaw = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    
+    // Add extra margin at bottom equal to headerPadding for vertical symmetry
+    // AND when IME is open, add it to sit "above" the keyboard with breathing room.
+    val contentBottomPadding = if (imePaddingRaw > totalNavBarHeight) {
+        imePaddingRaw + headerPadding
+    } else {
+        totalNavBarHeight + headerPadding
+    }
+
+    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = screenPadding, end = screenPadding, top = topPadding + screenPadding, bottom = contentBottomPadding)
+        ) {
+        Box(modifier = Modifier.fillMaxWidth().padding(bottom = headerPadding)) {
             IconButton(
                 onClick = { showSettingsDialog = true },
                 modifier = Modifier.align(Alignment.CenterStart)
@@ -166,14 +198,15 @@ fun InputSelectionScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessLow))
+                .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessLow)),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(PremiumRadius)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(24.dp),
+                        .padding(screenPadding),
                     contentAlignment = Alignment.TopCenter
                 ) {
                     Crossfade(targetState = selectedTab, label = "InputTabChange") { tabIndex ->
@@ -184,33 +217,40 @@ fun InputSelectionScreen(
                                 PersistenceManager.saveLibrary(context, updatedBooks)
                             }
                             2 -> WebInput(onStartReading, settings)
-                            3 -> GeminiChatInput(onStartReading, settings, context)
+                            3 -> GeminiChatInput(onStartReading, settings, context, onSettingsChanged)
                         }
                     }
                 }
                 
-                NavigationBar(
-                    modifier = Modifier.fillMaxWidth(),
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    windowInsets = WindowInsets(0.dp)
-                ) {
-                    tabs.forEachIndexed { index, title ->
-                        NavigationBarItem(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            icon = {
-                                val iconSize = if (isCompact) 28.dp else 24.dp
-                                when(index) {
-                                    0 -> Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(iconSize))
-                                    1 -> Icon(Icons.Default.Book, contentDescription = null, modifier = Modifier.size(iconSize))
-                                    2 -> Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(iconSize))
-                                    3 -> Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(iconSize))
-                                }
-                            },
-                            label = if (isCompact) null else { { Text(title) } },
-                            alwaysShowLabel = !isCompact
-                        )
-                    }
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surfaceContainer
+        ) {
+            NavigationBar(
+                modifier = Modifier.fillMaxWidth(),
+                containerColor = Color.Transparent, // Color provided by Surface
+                windowInsets = NavigationBarDefaults.windowInsets // Default insets include navigation bars
+            ) {
+                tabs.forEachIndexed { index, title ->
+                    NavigationBarItem(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        icon = {
+                            val iconSize = if (isCompact) 28.dp else 24.dp
+                            when(index) {
+                                0 -> Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(iconSize))
+                                1 -> Icon(Icons.Default.Book, contentDescription = null, modifier = Modifier.size(iconSize))
+                                2 -> Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(iconSize))
+                                3 -> Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(iconSize))
+                            }
+                        },
+                        label = if (isCompact) null else { { Text(title) } },
+                        alwaysShowLabel = !isCompact
+                    )
                 }
             }
         }
@@ -222,22 +262,31 @@ fun InputSelectionScreen(
 fun PasteInput(onStartReading: (String, String?, Boolean, String?) -> Unit) {
     var text by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    
+    val config = LocalConfiguration.current
+    val isCompact = config.screenWidthDp < 480
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(if (isCompact) 13.dp else 21.dp)
     ) {
         Text("Paste Text", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
         Text("Paste text to read immediately (not saved to library).", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         
-        OutlinedTextField(
+        TextField(
             value = text,
             onValueChange = { text = it },
             modifier = Modifier.fillMaxWidth().weight(1f),
             placeholder = { Text("Paste content here...") },
             keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-            shape = MaterialTheme.shapes.medium
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(PremiumRadius),
+            colors = TextFieldDefaults.colors(
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            )
         )
         Button(
             onClick = { onStartReading(text, null, false, null) },
@@ -343,7 +392,7 @@ fun NavigableBookItem(book: Book, onOpen: () -> Unit, onDelete: () -> Unit) {
                  Text(book.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                  val progress = if (book.totalTokens > 0) book.progressIndex.toFloat() / book.totalTokens else 0f
                  Spacer(modifier = Modifier.height(8.dp))
-                 LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth().height(4.dp))
+                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp))
                  Spacer(modifier = Modifier.height(4.dp))
                  Text("${(progress * 100).toInt()}% Completed", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
              }
@@ -367,30 +416,32 @@ fun WebInput(onStartReading: (String, String?, Boolean, String?) -> Unit, settin
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(21.dp)
     ) {
         Spacer(modifier = Modifier.height(16.dp))
         Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
         Text("Read from Web", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
         
-        OutlinedTextField(
+        TextField(
             value = url,
             onValueChange = { url = it },
             label = { Text("Article URL") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            shape = MaterialTheme.shapes.medium,
-            prefix = if (!hasProtocol && url.isNotEmpty()) {
-                { Text("https://", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            } else null
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(PremiumRadius),
+            prefix = {
+                if (!hasProtocol && url.isNotEmpty()) {
+                    Text("https://", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            colors = TextFieldDefaults.colors(
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            )
         )
         
-        Text(
-            "Smart Text Extraction (No AI required)",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.padding(16.dp))
         } else {
@@ -419,7 +470,8 @@ fun WebInput(onStartReading: (String, String?, Boolean, String?) -> Unit, settin
 fun GeminiChatInput(
     onStartReading: (String, String?, Boolean, String?) -> Unit,
     settings: AppSettings,
-    context: Context
+    context: Context,
+    onSettingsChanged: (AppSettings) -> Unit
 ) {
     var prompt by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
@@ -430,11 +482,11 @@ fun GeminiChatInput(
     val listState = rememberScrollState()
     
     val configuration = LocalConfiguration.current
-    val isCompact = configuration.screenWidthDp < 400
+    val isCompact = configuration.screenWidthDp < 480
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(21.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -490,9 +542,9 @@ fun GeminiChatInput(
                      ) {
                          // Message Bubble
                          Surface(
-                             shape = MaterialTheme.shapes.medium,
-                             color = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                             modifier = Modifier.fillMaxWidth(0.85f)
+                             shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = PremiumRadius, topEnd = PremiumRadius, bottomStart = if (isUser) PremiumRadius else 4.dp, bottomEnd = if (isUser) 4.dp else PremiumRadius),
+                             color = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                             modifier = Modifier.fillMaxWidth(0.9f)
                          ) {
                              Column(modifier = Modifier.padding(12.dp)) {
                                  // Message Content
@@ -545,23 +597,49 @@ fun GeminiChatInput(
             )
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(vertical = 4.dp), 
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextField(
                 value = prompt,
                 onValueChange = { prompt = it },
-                placeholder = { Text("Ask Gemini...") },
+                placeholder = { Text("Ask Gemini...", style = MaterialTheme.typography.bodyLarge) },
                 modifier = Modifier.weight(1f),
-                shape = MaterialTheme.shapes.large
+                shape = androidx.compose.foundation.shape.CircleShape,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = MaterialTheme.colorScheme.primary
+                ),
+                singleLine = false,
+                maxLines = 4
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(
+            Spacer(modifier = Modifier.width(12.dp))
+            Button(
                 onClick = {
-                    if (settings.geminiApiKey.isNotBlank() && prompt.isNotBlank()) {
+                    val trimmedPrompt = prompt.trim()
+                    if (trimmedPrompt.startsWith("/key", ignoreCase = true)) {
+                        // Handle API Key setting
+                        val newKey = trimmedPrompt.removePrefix("/key").trim()
+                        if (newKey.isNotBlank()) {
+                            val newSettings = settings.copy(geminiApiKey = newKey)
+                            onSettingsChanged(newSettings)
+                            prompt = ""
+                        }
+                    } else if (settings.geminiApiKey.isNotBlank() && prompt.isNotBlank()) {
                          val userMsg = ChatMessage("user", prompt)
                          history = history + userMsg
                          PersistenceManager.saveChatHistory(context, history)
                          
                          val promptToSend = prompt
+                         
+                         // Clear prompt immediately for better UX
                          prompt = ""
                          
                          scope.launch {
@@ -571,17 +649,30 @@ fun GeminiChatInput(
                              history = history + modelMsg
                              PersistenceManager.saveChatHistory(context, history)
                              isLoading = false
-                             // Auto-read response optional? Let user decide via button for now to keep chat flow
                          }
                     }
                 },
-                enabled = !isLoading && prompt.isNotBlank(),
-                modifier = Modifier.size(56.dp)
+                enabled = !isLoading && fragmentIsCommandOrReady(prompt, settings.geminiApiKey),
+                modifier = Modifier.size(56.dp),
+                shape = androidx.compose.foundation.shape.CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
             ) {
-                Icon(Icons.Default.Send, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(24.dp))
             }
         }
     }
+}
+
+// Helper for UI logic
+private fun fragmentIsCommandOrReady(prompt: String, apiKey: String): Boolean {
+    val trimmed = prompt.trim()
+    if (trimmed.startsWith("/key", ignoreCase = true)) return true
+    return trimmed.isNotBlank() && apiKey.isNotBlank()
 }
 
 @Suppress("UNUSED_VALUE")
@@ -628,8 +719,11 @@ fun ReaderScreen(
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
-    // Compact Mode Logic
-    val isCompact = screenWidthDp < 400
+    // Compact Mode Logic (Standardized to 480dp across app)
+    val isCompact = screenWidthDp < 480
+    
+    // Golden Ratio Spacing
+    val goldenPadding = if (isCompact) 13.dp else 21.dp
     
     // Effective width for text: Screen Width - (Horizontal Padding)
     // Arrows are ~64dp each side (48 size + 16 pad). 
@@ -781,7 +875,7 @@ fun ReaderScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .padding(16.dp),
+                    .padding(goldenPadding),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -876,7 +970,7 @@ fun ReaderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(vertical = 80.dp),
+                    .padding(vertical = 84.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -954,7 +1048,7 @@ fun ReaderScreen(
                     BoxWithConstraints(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .padding(horizontal = 64.dp)
+                            .padding(horizontal = 80.dp) // Physically moved away from arrows (64dp -> 80dp)
                     ) {
                          val density = LocalDensity.current
                         val maxWidthPx = with(density) { this@BoxWithConstraints.maxWidth.toPx() }
@@ -964,7 +1058,7 @@ fun ReaderScreen(
                              calculateFitCapacity(
                                  tokens = tokens, 
                                  startIndex = currentIndex, 
-                                 maxWidthPx = with(density) { (configuration.screenWidthDp - 140).dp.toPx() }, // Use global screen width calculation for consistency with loop
+                                 maxWidthPx = effectiveMaxWidthPx, // Use safe variable
                                  fontSizePx = with(density) { settings.fontSize.sp.toPx() }, 
                                  fontFamily = settings.font.fontFamily
                              )
@@ -1094,7 +1188,7 @@ fun ReaderScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .padding(16.dp)
+                    .padding(goldenPadding)
             ) {
                 Slider(
                     value = currentIndex.toFloat(),
@@ -1176,7 +1270,7 @@ fun ReaderScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f) // Takes most space
-                            .padding(16.dp),
+                            .padding(goldenPadding),
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit
                     )
                     

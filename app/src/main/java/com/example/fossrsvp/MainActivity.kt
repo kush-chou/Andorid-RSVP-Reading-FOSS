@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
@@ -40,7 +41,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             FOSSRSVPTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    RSVPApp(modifier = Modifier.padding(innerPadding))
+                    RSVPApp(scaffoldPadding = innerPadding)
                 }
             }
         }
@@ -49,7 +50,8 @@ class MainActivity : ComponentActivity() {
 
 @Suppress("UNUSED_VALUE")
 @Composable
-fun RSVPApp(modifier: Modifier = Modifier) {
+fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
+    val modifier = Modifier // Keep consistent if needed elsewhere, but mostly using scaffoldPadding now
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
@@ -137,7 +139,7 @@ fun RSVPApp(modifier: Modifier = Modifier) {
             },
             tts = tts,
             isTtsReady = isTtsReady,
-            modifier = modifier,
+            modifier = Modifier.padding(scaffoldPadding),
             onManageVoices = {
                 showVoiceManager = true
             }
@@ -183,8 +185,9 @@ fun RSVPApp(modifier: Modifier = Modifier) {
             isTtsReady = isTtsReady,
             libraryBooks = libraryBooks,
             context = context,
-            modifier = modifier,
-            onManageVoices = { showVoiceManager = true }
+            modifier = Modifier,
+            onManageVoices = { showVoiceManager = true },
+            scaffoldPadding = scaffoldPadding
         )
     }
 }

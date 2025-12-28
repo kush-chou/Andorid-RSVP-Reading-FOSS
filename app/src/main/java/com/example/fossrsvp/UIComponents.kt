@@ -80,15 +80,15 @@ fun SettingsDialog(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            shape = RoundedCornerShape(16.dp),
+                .padding(21.dp),
+            shape = RoundedCornerShape(PremiumRadius),
             color = MaterialTheme.colorScheme.surface
         ) {
             Column(
                 modifier = Modifier
-                    .padding(16.dp)
+                    .padding(21.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(21.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
