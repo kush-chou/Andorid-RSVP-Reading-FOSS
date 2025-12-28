@@ -27,6 +27,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.example.fossrsvp.ui.theme.FOSSRSVPTheme
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import kotlinx.coroutines.launch
@@ -40,7 +43,20 @@ class MainActivity : ComponentActivity() {
         setContent {
             FOSSRSVPTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    RSVPApp(modifier = Modifier.padding(innerPadding))
+                    RSVPApp(
+                        modifier = Modifier.padding(innerPadding),
+                        toggleImmersiveMode = { enable ->
+                            val windowInsetsController =
+                                WindowCompat.getInsetsController(window, window.decorView)
+                            windowInsetsController.systemBarsBehavior =
+                                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                            if (enable) {
+                                windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
+                            } else {
+                                windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -49,7 +65,10 @@ class MainActivity : ComponentActivity() {
 
 @Suppress("UNUSED_VALUE")
 @Composable
-fun RSVPApp(modifier: Modifier = Modifier) {
+fun RSVPApp(
+    modifier: Modifier = Modifier,
+    toggleImmersiveMode: (Boolean) -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
@@ -65,7 +84,8 @@ fun RSVPApp(modifier: Modifier = Modifier) {
     
     // Current book tracking for resume
     var currentBookUri by remember { mutableStateOf<String?>(null) }
-    
+    var currentStatsBook by remember { mutableStateOf<Book?>(null) }
+
     // Global TTS instance holder
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var isTtsReady by remember { mutableStateOf(false) }
@@ -104,6 +124,11 @@ fun RSVPApp(modifier: Modifier = Modifier) {
             onSettingsChanged = { settings = it },
             onBack = { showVoiceManager = false }
         )
+    } else if (currentStatsBook != null) {
+        StatisticsScreen(
+            book = currentStatsBook!!,
+            onBack = { currentStatsBook = null }
+        )
     } else if (isParsing) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -113,9 +138,12 @@ fun RSVPApp(modifier: Modifier = Modifier) {
             }
         }
     } else if (isReading) {
-        val initialIndex = if (currentBookUri != null) {
-            libraryBooks.find { it.uri == currentBookUri }?.progressIndex ?: 0
-        } else 0
+        val currentBook = if (currentBookUri != null) {
+            libraryBooks.find { it.uri == currentBookUri }
+        } else null
+
+        val initialIndex = currentBook?.progressIndex ?: 0
+        val bookmarks = currentBook?.bookmarks ?: emptyList()
         
         ReaderScreen(
             tokens = tokens,
@@ -134,12 +162,37 @@ fun RSVPApp(modifier: Modifier = Modifier) {
                 }
                 isReading = false 
                 currentBookUri = null
+                toggleImmersiveMode(false)
             },
+            toggleImmersiveMode = toggleImmersiveMode,
             tts = tts,
             isTtsReady = isTtsReady,
             modifier = modifier,
             onManageVoices = {
                 showVoiceManager = true
+            },
+            bookmarks = bookmarks,
+            onBookmarksChanged = { newBookmarks ->
+                if (currentBookUri != null) {
+                    val updatedList = libraryBooks.map { book ->
+                        if (book.uri == currentBookUri) {
+                            book.copy(bookmarks = newBookmarks)
+                        } else book
+                    }
+                    libraryBooks = updatedList
+                    PersistenceManager.saveLibrary(context, libraryBooks)
+                }
+            },
+            onSessionComplete = { session ->
+                if (currentBookUri != null) {
+                    val updatedList = libraryBooks.map { book ->
+                        if (book.uri == currentBookUri) {
+                            book.copy(sessions = book.sessions + session)
+                        } else book
+                    }
+                    libraryBooks = updatedList
+                    PersistenceManager.saveLibrary(context, libraryBooks)
+                }
             }
         )
     } else {
@@ -184,7 +237,8 @@ fun RSVPApp(modifier: Modifier = Modifier) {
             libraryBooks = libraryBooks,
             context = context,
             modifier = modifier,
-            onManageVoices = { showVoiceManager = true }
+            onManageVoices = { showVoiceManager = true },
+            onOpenStats = { book -> currentStatsBook = book }
         )
     }
 }

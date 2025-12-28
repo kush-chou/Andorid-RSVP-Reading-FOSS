@@ -13,6 +13,13 @@ enum class TokenType {
     Text, Image, Table
 }
 
+data class Bookmark(
+    val index: Int,
+    val snippet: String,
+    val note: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 data class RSVPToken(
     val word: String,
     val style: WordStyle = WordStyle.Normal,
@@ -85,7 +92,16 @@ data class Book(
     val progressIndex: Int = 0,
     val totalTokens: Int = 0,
     val addedAt: Long = System.currentTimeMillis(),
-    val isEpub: Boolean = false
+    val isEpub: Boolean = false,
+    val bookmarks: List<Bookmark> = emptyList(),
+    val sessions: List<ReadingSession> = emptyList()
+)
+
+data class ReadingSession(
+    val timestamp: Long,
+    val durationSeconds: Long,
+    val wordsRead: Int,
+    val wpm: Int
 )
 
 data class ChatMessage(
