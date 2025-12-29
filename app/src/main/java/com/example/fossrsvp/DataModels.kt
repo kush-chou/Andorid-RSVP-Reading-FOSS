@@ -79,13 +79,21 @@ data class AppSettings(
     )
 )
 
+data class ReadingSession(
+    val startTime: Long,
+    val endTime: Long,
+    val wordsRead: Int,
+    val wpm: Int
+)
+
 data class Book(
     val uri: String,
     val title: String,
     val progressIndex: Int = 0,
     val totalTokens: Int = 0,
     val addedAt: Long = System.currentTimeMillis(),
-    val isEpub: Boolean = false
+    val isEpub: Boolean = false,
+    val sessions: List<ReadingSession> = emptyList()
 )
 
 data class ChatMessage(

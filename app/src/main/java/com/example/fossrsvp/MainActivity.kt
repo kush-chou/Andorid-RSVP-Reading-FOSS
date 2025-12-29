@@ -62,6 +62,7 @@ fun RSVPApp(modifier: Modifier = Modifier) {
     var isReading by remember { mutableStateOf(false) }
     var isParsing by remember { mutableStateOf(false) }
     var showVoiceManager by remember { mutableStateOf(false) }
+    var showStatistics by remember { mutableStateOf(false) }
     
     // Current book tracking for resume
     var currentBookUri by remember { mutableStateOf<String?>(null) }
@@ -98,7 +99,12 @@ fun RSVPApp(modifier: Modifier = Modifier) {
         }
     }
 
-    if (showVoiceManager) {
+    if (showStatistics) {
+        StatisticsScreen(
+            books = libraryBooks,
+            onBack = { showStatistics = false }
+        )
+    } else if (showVoiceManager) {
         VoiceManagerScreen(
             currentSettings = settings,
             onSettingsChanged = { settings = it },
@@ -122,12 +128,15 @@ fun RSVPApp(modifier: Modifier = Modifier) {
             initialIndex = initialIndex,
             settings = settings,
             onSettingsChanged = { newSettings -> settings = newSettings },
-            onBack = { progressIndex ->
+            onBack = { progressIndex, newSessions ->
                 // Update book progress on exit
                 if (currentBookUri != null) {
                     val updatedList = libraryBooks.map { book ->
                         if (book.uri == currentBookUri) {
-                            book.copy(progressIndex = progressIndex)
+                            book.copy(
+                                progressIndex = progressIndex,
+                                sessions = book.sessions + newSessions
+                            )
                         } else book
                     }
                     libraryBooks = updatedList
@@ -184,7 +193,8 @@ fun RSVPApp(modifier: Modifier = Modifier) {
             libraryBooks = libraryBooks,
             context = context,
             modifier = modifier,
-            onManageVoices = { showVoiceManager = true }
+            onManageVoices = { showVoiceManager = true },
+            onShowStatistics = { showStatistics = true }
         )
     }
 }
