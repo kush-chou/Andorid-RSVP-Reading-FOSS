@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -123,7 +124,8 @@ fun InputSelectionScreen(
     libraryBooks: List<Book>,
     context: Context,
     modifier: Modifier = Modifier,
-    onManageVoices: () -> Unit
+    onManageVoices: () -> Unit,
+    onShowStatistics: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -160,6 +162,13 @@ fun InputSelectionScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.align(Alignment.Center)
             )
+
+            IconButton(
+                onClick = onShowStatistics,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                Icon(Icons.Default.Info, contentDescription = "Statistics", modifier = Modifier.size(32.dp))
+            }
         }
 
         ElevatedCard(
@@ -591,7 +600,7 @@ fun ReaderScreen(
     initialIndex: Int,
     settings: AppSettings,
     onSettingsChanged: (AppSettings) -> Unit,
-    onBack: (Int) -> Unit,
+    onBack: (Int, List<ReadingSession>) -> Unit,
     tts: TextToSpeech?,
     isTtsReady: Boolean,
     modifier: Modifier = Modifier,
@@ -599,6 +608,30 @@ fun ReaderScreen(
 ) {
     var currentIndex by remember { mutableIntStateOf(initialIndex) }
     var isPlaying by remember { mutableStateOf(false) }
+    // Session Tracking
+    var sessions by remember { mutableStateOf(emptyList<ReadingSession>()) }
+    var currentSessionStart by remember { mutableStateOf<Long?>(null) }
+    var currentSessionStartIndex by remember { mutableIntStateOf(initialIndex) }
+
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            currentSessionStart = System.currentTimeMillis()
+            currentSessionStartIndex = currentIndex
+        } else {
+            val start = currentSessionStart
+            if (start != null) {
+                val end = System.currentTimeMillis()
+                val durationSeconds = (end - start) / 1000f
+                val words = currentIndex - currentSessionStartIndex
+                if (words > 0 && durationSeconds > 1) { // Filter noise
+                    // Accurate WPM calculation for this session
+                    val sessionWpm = (words / (durationSeconds / 60)).toInt()
+                    sessions = sessions + ReadingSession(start, end, words, sessionWpm)
+                }
+                currentSessionStart = null
+            }
+        }
+    }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var isTtsEnabled by remember { mutableStateOf(false) }
 
@@ -728,7 +761,20 @@ fun ReaderScreen(
     val focusRequester = remember { FocusRequester() }
     BackHandler(onBack = { 
         tts?.stop()
-        onBack(currentIndex) 
+        // Finalize any open session
+        if (isPlaying) {
+             val start = currentSessionStart
+             if (start != null) {
+                 val end = System.currentTimeMillis()
+                 val durationSeconds = (end - start) / 1000f
+                 val words = currentIndex - currentSessionStartIndex
+                 if (words > 0 && durationSeconds > 1) {
+                     val sessionWpm = (words / (durationSeconds / 60)).toInt()
+                     sessions = sessions + ReadingSession(start, end, words, sessionWpm)
+                 }
+             }
+        }
+        onBack(currentIndex, sessions)
     })
 
     if (showSettingsDialog) {
@@ -763,7 +809,18 @@ fun ReaderScreen(
                         }
                         Key.Escape, Key.Q -> {
                             tts?.stop()
-                            onBack(currentIndex); true
+                            // Logic duplicated from BackHandler but acceptable for key shortcut
+                            val finalSessions = if (isPlaying && currentSessionStart != null) {
+                                val end = System.currentTimeMillis()
+                                val durationSeconds = (end - currentSessionStart!!) / 1000f
+                                val words = currentIndex - currentSessionStartIndex
+                                if (words > 0 && durationSeconds > 1) {
+                                     val sessionWpm = (words / (durationSeconds / 60)).toInt()
+                                     sessions + ReadingSession(currentSessionStart!!, end, words, sessionWpm)
+                                } else sessions
+                            } else sessions
+
+                            onBack(currentIndex, finalSessions); true
                         }
                         else -> false
                     }
@@ -865,7 +922,18 @@ fun ReaderScreen(
                     }
                     IconButton(onClick = { 
                         tts?.stop()
-                        onBack(currentIndex) 
+                        // Finalize session logic
+                        val finalSessions = if (isPlaying && currentSessionStart != null) {
+                            val end = System.currentTimeMillis()
+                            val durationSeconds = (end - currentSessionStart!!) / 1000f
+                            val words = currentIndex - currentSessionStartIndex
+                            if (words > 0 && durationSeconds > 1) {
+                                val sessionWpm = (words / (durationSeconds / 60)).toInt()
+                                sessions + ReadingSession(currentSessionStart!!, end, words, sessionWpm)
+                            } else sessions
+                        } else sessions
+
+                        onBack(currentIndex, finalSessions)
                     }) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = settings.colorScheme.contextText)
                     }
