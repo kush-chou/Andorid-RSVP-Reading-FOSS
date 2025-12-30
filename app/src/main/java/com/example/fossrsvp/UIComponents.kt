@@ -51,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +60,7 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -575,41 +578,45 @@ fun RSVPWordDisplay(
 
         if (isMultiWord) {
             // SEQUENTIAL REVEAL MODE (Row)
-             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // SEQUENTIAL REVEAL MODE (Single Text with Spans)
+            // This allows wrapping if the chunk is too long for one line.
+            val annotatedString = buildAnnotatedString {
                 tokens.forEachIndexed { index, token ->
-                    // Visibility Logic:
-                    // Visible if index <= focusIndex ("Typewriter reveal")
-                    // Invisible (taking space) if index > focusIndex
-                    
                     val isVisible = index <= focusIndex
                     val isFocused = index == focusIndex
                     
                     val color = if (isFocused) settings.centerLetterColor else settings.colorScheme.text
-                    // If not visible, use Transparent color (alpha 0)
+                    // If not visible, use Transparent color (alpha 0) so it takes up space but isn't seen
                     val finalColor = if (isVisible) color else Color.Transparent
                     
                     val fontWeight = if (token.style == WordStyle.Bold || token.style == WordStyle.Header) FontWeight.Bold else FontWeight.Normal
                     val decoration = if (token.style == WordStyle.Link) TextDecoration.Underline else TextDecoration.None
-
-                    // Clean text (optional, user wanted markdown rendered)
-                    val textToRender = token.word.replace(Regex("[*#_`]"), "") // Strip chars, keep style
                     
-                    Text(
-                        text = textToRender + " ", // Add space
-                        style = commonTextStyle.copy(
+                    // Clean text (optional, user wanted markdown rendered)
+                    val textToRender = token.word.replace(Regex("[*#_`]"), "")
+                    
+                    withStyle(
+                        style = SpanStyle(
                             color = finalColor,
                             fontWeight = fontWeight,
-                            textDecoration = decoration
-                        ),
-                        softWrap = false,
-                        maxLines = 1
-                    )
+                            textDecoration = decoration,
+                            fontSize = fontSizeSp
+                        )
+                    ) {
+                        append(textToRender)
+                        append(" ")
+                    }
                 }
             }
+
+            Text(
+                text = annotatedString,
+                style = commonTextStyle,
+                textAlign = TextAlign.Center,
+                softWrap = false,
+                maxLines = 1,
+                overflow = TextOverflow.Visible // Allow overflow if it happens (shouldn't with correct chunking)
+            )
         } else {
             // CLASSIC RSVP (Single Word)
             val targetToken = tokens[0]

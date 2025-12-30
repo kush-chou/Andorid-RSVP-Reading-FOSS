@@ -110,6 +110,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.channels.Channel
@@ -747,6 +750,8 @@ fun ReaderScreen(
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
+    val textMeasurer = rememberTextMeasurer()
+    
     // Compact Mode Logic (Standardized to 480dp across app)
     val isCompact = screenWidthDp < 480
     
@@ -759,6 +764,9 @@ fun ReaderScreen(
     val effectiveMaxWidthPx = with(density) { (screenWidthDp - 160).dp.toPx() }
     val userFontSizePx = with(density) { settings.fontSize.sp.toPx() }
 
+    // Navigation History
+    val chunkStartHistory = remember { androidx.compose.runtime.mutableStateListOf<Int>() }
+
     LaunchedEffect(isPlaying, settings.wpm, currentIndex, settings.chunkSize) {
         if (isPlaying) {
              while (currentIndex < tokens.size && isPlaying) {
@@ -768,41 +776,30 @@ fun ReaderScreen(
                          tokens = tokens, 
                          startIndex = currentIndex, 
                          maxWidthPx = effectiveMaxWidthPx, 
-                         fontSizePx = userFontSizePx, 
-                         fontFamily = settings.font.fontFamily
+                         fontSizeSp = settings.fontSize.sp, 
+                         fontFamily = settings.font.fontFamily,
+                         textMeasurer = textMeasurer,
+                         density = density
                      )
                  } else {
                      min(settings.chunkSize, tokens.size - currentIndex)
                  }
-                 
-                 // If using sequential reveal (chunk > 1), we iterate INSIDE the chunk
-                 // If chunk == 1, loop runs once, same as classic.
-                 
-                 // Reset focus offset if we are starting a NEW chunk traversal 
-                 // (handled by logic below, assumes focusOffset starts at 0 for new chunk)
-                 
-                 // Wait, we need to know if we are "in the middle" of a chunk from a pause?
-                 // If paused, we remember focusOffset.
                  
                  val chunkTokens = tokens.subList(currentIndex, currentIndex + currentChunkLimit)
                  
                  // Playback Loop for this Chunk
                  while (focusOffset < currentChunkLimit && isPlaying) {
                      val currentToken = chunkTokens[focusOffset]
+                     val isLastInChunk = focusOffset == currentChunkLimit - 1
                      
-                     // TTS Trigger (Per Word)
+                     // TTS Logic
                      if (isTtsEnabled) {
                          // Fix "1." pronunciation for single word logic
                          var speakText = currentToken.word
                          if (speakText.matches(Regex("\\d+\\."))) {
                              speakText = speakText.replace(".", "")
                          }
-                         
-                         // Calculate TTS Rate
-                         // Base rate 1.0 is roughly 150-180 WPM depending on engine.
-                         // We use 150 as a conservative baseline.
                          val ttsRate = (settings.wpm / 150f).coerceIn(0.5f, 4.0f)
-                         
                          if (isTtsReady && tts != null) {
                             try {
                                 if (settings.useNeuralTts) {
@@ -811,26 +808,76 @@ fun ReaderScreen(
                                     tts.setSpeechRate(ttsRate)
                                     tts.speak(speakText, TextToSpeech.QUEUE_FLUSH, null, null)
                                 }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
+                            } catch (e: Exception) { e.printStackTrace() }
                          }
                      }
 
-                     // Delay Calculation
-                     val baseDelay = (60000 / settings.wpm).toLong()
-                     val finalDelay = (baseDelay * currentToken.delayMultiplier).toLong()
+                     // TIMING LOGIC: Stream (70%) vs Breath (Remaining Budget)
+                     
+                     // Helper to calculate target duration for a single word
+                     fun calculateWordTarget(token: RSVPToken): Long {
+                         val baseDelay = (60000 / settings.wpm).toLong()
+                         
+                         // 1. Complexity Penalty: +10% for every char > 7
+                         val length = token.word.length
+                         val penaltyMultiplier = if (length > 7) {
+                             1.0f + ((length - 7) * 0.1f) 
+                         } else {
+                             1.0f
+                         }
+                         
+                         // 2. Combined Duration
+                         return (baseDelay * token.delayMultiplier * penaltyMultiplier).toLong()
+                     }
+
+                     val finalDelay = if (!isLastInChunk) {
+                         // STREAMING PHASE:
+                         // Allocating 70% of THIS word's ideal duration to the stream delay.
+                         // This gives a readable but fast pace that scales with word complexity.
+                         (calculateWordTarget(currentToken) * 0.7f).toLong().coerceAtLeast(30L)
+                     } else {
+                         // BREATH PHASE (Inter-Chunk):
+                         // Calculate the Total Budget for the entire chunk
+                         var totalChunkBudget = 0L
+                         var timeSpentStreaming = 0L
+                         
+                         chunkTokens.forEachIndexed { index, t ->
+                             val target = calculateWordTarget(t)
+                             totalChunkBudget += target
+                             
+                             // Accumulate what we *actually* spent in the loop for previous words
+                             if (index < chunkTokens.size - 1) {
+                                  // We used 70% of target for streaming steps
+                                 timeSpentStreaming += (target * 0.7f).toLong().coerceAtLeast(30L)
+                             }
+                         }
+                         
+                         // The remaining budget is the breath.
+                         // This naturally becomes approx 30% of total time + 30% of the last word's time
+                         // effectively creating a strong pause distributed from the savings of the stream.
+                         val breathDuration = totalChunkBudget - timeSpentStreaming
+                         
+                         // Ensure a minimum meaningful pause (at least 1 base beat)
+                         val minBreath = (60000 / settings.wpm).toLong()
+                         breathDuration.coerceAtLeast(minBreath)
+                     }
                      
                      delay(finalDelay)
                      
                      // Advance Focus
-                     if (isPlaying) { // Check again after delay
+                     if (isPlaying) {
                          focusOffset++
                      }
                  }
                  
                  // Chunk Finished?
                  if (focusOffset >= currentChunkLimit) {
+                     // Push to history before advancing
+                     if (chunkStartHistory.isEmpty() || chunkStartHistory.last() != currentIndex) {
+                         chunkStartHistory.add(currentIndex)
+                         if (chunkStartHistory.size > 50) chunkStartHistory.removeAt(0)
+                     }
+                     
                      currentIndex += currentChunkLimit
                      focusOffset = 0 // Reset for next chunk
                  }
@@ -874,14 +921,30 @@ fun ReaderScreen(
                         Key.Spacebar, Key.K -> {
                             isPlaying = !isPlaying; true
                         }
-                        Key.J -> {
-                            currentIndex = (currentIndex - 5).coerceAtLeast(0); true
+                        Key.J, Key.LeftBracket -> {
+                             // Back Navigation Logic
+                             if (focusOffset > 0) {
+                                 // Rewind to start of current chunk
+                                 focusOffset = 0
+                             } else {
+                                 // Go to previous chunk
+                                 if (chunkStartHistory.isNotEmpty()) {
+                                     val prev = chunkStartHistory.removeLast()
+                                     currentIndex = prev
+                                 } else {
+                                     currentIndex = (currentIndex - 5).coerceAtLeast(0) // Fallback
+                                 }
+                                 focusOffset = 0
+                             }
+                             true
                         }
-                        Key.L -> {
+                        Key.L, Key.RightBracket -> {
+                            // Forward logic: Jump forward? Or just simple skip?
+                            // Simple skip for now to avoid complexity with calculating next chunk size without measuring
                             currentIndex = (currentIndex + 5).coerceAtMost(tokens.size - 1); true
                         }
                         Key.Semicolon -> {
-                            currentIndex = 0; true
+                            currentIndex = 0; chunkStartHistory.clear(); focusOffset = 0; true
                         }
                         Key.Escape, Key.Q -> {
                             tts?.stop()
@@ -897,8 +960,8 @@ fun ReaderScreen(
         LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
         Box(modifier = modifier.fillMaxSize()) {
-            // ... (Top Bar - Same as before but with added TTS toggle visual feedback if needed) ...
-            // Simplified for brevity, reusing previous structure
+            
+            // ... (Top Bar - Left Group / Right Group omitted for brevity as they are unchanged) ...
              Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1087,8 +1150,10 @@ fun ReaderScreen(
                                  tokens = tokens, 
                                  startIndex = currentIndex, 
                                  maxWidthPx = effectiveMaxWidthPx, // Use safe variable
-                                 fontSizePx = with(density) { settings.fontSize.sp.toPx() }, 
-                                 fontFamily = settings.font.fontFamily
+                                 fontSizeSp = settings.fontSize.sp, 
+                                 fontFamily = settings.font.fontFamily,
+                                 textMeasurer = textMeasurer,
+                                 density = density
                              )
                         } else {
                             min(settings.chunkSize, tokens.size - currentIndex)
@@ -1110,7 +1175,19 @@ fun ReaderScreen(
                     }
 
                     IconButton(
-                        onClick = { if (currentIndex > 0) currentIndex-- },
+                        onClick = { 
+                             // Same logic as Key J
+                             if (focusOffset > 0) {
+                                 focusOffset = 0
+                             } else {
+                                 if (chunkStartHistory.isNotEmpty()) {
+                                     currentIndex = chunkStartHistory.removeLast()
+                                 } else {
+                                     currentIndex = (currentIndex - 5).coerceAtLeast(0)
+                                 }
+                                 focusOffset = 0
+                             }
+                        },
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .padding(start = 16.dp)
@@ -1159,8 +1236,10 @@ fun ReaderScreen(
                                          tokens = tokens, 
                                          startIndex = currentIndex, 
                                          maxWidthPx = with(density) { (configuration.screenWidthDp - 140).dp.toPx() }, 
-                                         fontSizePx = with(density) { settings.fontSize.sp.toPx() }, 
-                                         fontFamily = settings.font.fontFamily
+                                         fontSizeSp = settings.fontSize.sp, 
+                                         fontFamily = settings.font.fontFamily,
+                                         textMeasurer = textMeasurer,
+                                         density = density
                                      )
                                 } else {
                                     min(settings.chunkSize, tokens.size - currentIndex)
@@ -1332,40 +1411,49 @@ fun calculateFitCapacity(
     tokens: List<RSVPToken>,
     startIndex: Int,
     maxWidthPx: Float,
-    fontSizePx: Float,
-    fontFamily: androidx.compose.ui.text.font.FontFamily
+    fontSizeSp: androidx.compose.ui.unit.TextUnit,
+    fontFamily: androidx.compose.ui.text.font.FontFamily,
+    textMeasurer: TextMeasurer,
+    density: androidx.compose.ui.unit.Density
 ): Int {
     if (startIndex >= tokens.size) return 0
     
-    val paint = android.text.TextPaint()
-    paint.textSize = fontSizePx
-    paint.typeface = when(fontFamily) {
-        androidx.compose.ui.text.font.FontFamily.Serif -> android.graphics.Typeface.SERIF
-        androidx.compose.ui.text.font.FontFamily.SansSerif -> android.graphics.Typeface.SANS_SERIF
-        androidx.compose.ui.text.font.FontFamily.Monospace -> android.graphics.Typeface.MONOSPACE
-        else -> android.graphics.Typeface.DEFAULT
-    }
+    // Safety limit to prevent freezing/over-processing
+    // We treat maxWidthPx conservatively (95%)
+    val effectiveLimit = maxWidthPx * 0.95f
+    
+    val style = TextStyle(
+        fontSize = fontSizeSp,
+        fontFamily = fontFamily
+    )
 
-    var currentWidth = 0f
+    var currentChunkText = ""
     var count = 0
     
-    // Safety limit to prevent freezing
-    // We also treat maxWidthPx conservatively (90%) because TextPaint measurement 
-    // might differ slightly from Compose render width.
-    val effectiveLimit = maxWidthPx * 0.9f
-
+    // Look ahead loop
     for (i in startIndex until min(tokens.size, startIndex + 10)) {
-        val word = tokens[i].word + " " // Space padding
-        val width = paint.measureText(word)
+        val nextWord = tokens[i].word
+        // Determine spacing: if it's the first word, no space. Otherwise add space.
+        val potentialText = if (currentChunkText.isEmpty()) nextWord else "$currentChunkText $nextWord"
         
-        if (currentWidth + width <= effectiveLimit) {
-            currentWidth += width
+        val result = textMeasurer.measure(
+            text = potentialText,
+            style = style,
+            softWrap = false,
+            maxLines = 1,
+            density = density
+        )
+        
+        val width = result.size.width
+        
+        if (width <= effectiveLimit) {
+            currentChunkText = potentialText
             count++
         } else {
+            // If the very first word is too long, we MUST include it alone (logic for single word clipping handled by overflow=Visible)
+            if (count == 0) return 1
             break
         }
-        currentWidth += width
-        count++
     }
     return count.coerceAtLeast(1)
 }
