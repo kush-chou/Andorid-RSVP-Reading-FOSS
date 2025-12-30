@@ -70,8 +70,11 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -484,31 +487,48 @@ fun GeminiChatInput(
     val configuration = LocalConfiguration.current
     val isCompact = configuration.screenWidthDp < 480
 
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val titleStyle = MaterialTheme.typography.titleMedium
+    
     Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(21.dp)
+        modifier = Modifier.fillMaxSize()
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("AI Chat", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+            Text("AI Chat", style = MaterialTheme.typography.headlineSmall, color = primaryColor)
             
             if (history.isNotEmpty()) {
+                // "New Tab" State
                 Button(
                     onClick = { 
                         history = emptyList()
                         PersistenceManager.saveChatHistory(context, history)
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(PremiumRadius),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("New Chat")
+                    Text("New Tab")
+                }
+            } else {
+                // "History >" State
+                TextButton(
+                    onClick = { 
+                        // TODO: Implement History View
+                        Toast.makeText(context, "History not available yet", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = primaryColor)
+                ) {
+                    Text("History >", style = titleStyle)
                 }
             }
         }
+        
+        Spacer(modifier = Modifier.height(16.dp))
 
         if (settings.geminiApiKey.isBlank()) {
             ElevatedCard(
@@ -544,11 +564,14 @@ fun GeminiChatInput(
                          Surface(
                              shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = PremiumRadius, topEnd = PremiumRadius, bottomStart = if (isUser) PremiumRadius else 4.dp, bottomEnd = if (isUser) 4.dp else PremiumRadius),
                              color = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                             modifier = Modifier.fillMaxWidth(0.9f)
+                             modifier = Modifier.widthIn(max = (configuration.screenWidthDp * 0.85f).dp)
                          ) {
-                             Column(modifier = Modifier.padding(12.dp)) {
+                             Column(modifier = Modifier.padding(20.dp)) {
                                  // Message Content
-                                 Text(msg.content, style = MaterialTheme.typography.bodyMedium)
+                                 Text(
+                                     msg.content, 
+                                     style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 28.sp)
+                                 )
                                  
                                  Spacer(modifier = Modifier.height(8.dp))
                                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -600,7 +623,6 @@ fun GeminiChatInput(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
                 .padding(vertical = 4.dp), 
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -608,7 +630,7 @@ fun GeminiChatInput(
                 value = prompt,
                 onValueChange = { prompt = it },
                 placeholder = { Text("Ask Gemini...", style = MaterialTheme.typography.bodyLarge) },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).height(56.dp),
                 shape = androidx.compose.foundation.shape.CircleShape,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -617,52 +639,58 @@ fun GeminiChatInput(
                     unfocusedIndicatorColor = Color.Transparent,
                     cursorColor = MaterialTheme.colorScheme.primary
                 ),
-                singleLine = false,
-                maxLines = 4
+                singleLine = true
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Button(
+            
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            // Send Button
+            androidx.compose.material3.FilledIconButton(
                 onClick = {
                     val trimmedPrompt = prompt.trim()
                     if (trimmedPrompt.startsWith("/key", ignoreCase = true)) {
                         // Handle API Key setting
                         val newKey = trimmedPrompt.removePrefix("/key").trim()
                         if (newKey.isNotBlank()) {
-                            val newSettings = settings.copy(geminiApiKey = newKey)
-                            onSettingsChanged(newSettings)
+                            onSettingsChanged(settings.copy(geminiApiKey = newKey))
                             prompt = ""
+                            Toast.makeText(context, "API Key Updated", Toast.LENGTH_SHORT).show()
                         }
-                    } else if (settings.geminiApiKey.isNotBlank() && prompt.isNotBlank()) {
-                         val userMsg = ChatMessage("user", prompt)
-                         history = history + userMsg
-                         PersistenceManager.saveChatHistory(context, history)
-                         
-                         val promptToSend = prompt
-                         
-                         // Clear prompt immediately for better UX
-                         prompt = ""
-                         
-                         scope.launch {
-                             isLoading = true
-                             val response = generateTextWithGemini(settings.geminiApiKey, promptToSend, settings.promptPreset, settings.aiModel)
-                             val modelMsg = ChatMessage("model", response)
-                             history = history + modelMsg
-                             PersistenceManager.saveChatHistory(context, history)
-                             isLoading = false
-                         }
+                    } else if (prompt.isNotBlank()) {
+                        val newMessage = ChatMessage("user", prompt)
+                        history = history + newMessage
+                        PersistenceManager.saveChatHistory(context, history)
+                        
+                        val promptToSend = prompt
+                        prompt = ""
+                        
+                        // Scroll to bottom
+                        scope.launch {
+                            kotlinx.coroutines.delay(50) 
+                            listState.animateScrollTo(listState.maxValue)
+                        }
+
+                        // Call Gemini
+                        scope.launch {
+                            isLoading = true
+                            // Note: Current logic only sends the last prompt, not full history, as per existing implementation.
+                            val response = generateTextWithGemini(settings.geminiApiKey, promptToSend, settings.promptPreset, settings.aiModel)
+                            val modelMessage = ChatMessage("model", response)
+                            history = history + modelMessage
+                            PersistenceManager.saveChatHistory(context, history)
+                            isLoading = false
+                            
+                            kotlinx.coroutines.delay(50) 
+                            listState.animateScrollTo(listState.maxValue)
+                        }
                     }
                 },
-                enabled = !isLoading && fragmentIsCommandOrReady(prompt, settings.geminiApiKey),
+                enabled = !isLoading && (prompt.isNotBlank() && (settings.geminiApiKey.isNotBlank() || prompt.trim().startsWith("/key", true))),
                 modifier = Modifier.size(56.dp),
                 shape = androidx.compose.foundation.shape.CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(24.dp))
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", modifier = Modifier.size(24.dp))
             }
         }
     }
