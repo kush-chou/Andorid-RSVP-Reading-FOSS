@@ -136,6 +136,7 @@ fun InputSelectionScreen(
     context: Context,
     modifier: Modifier = Modifier,
     onManageVoices: () -> Unit,
+    onShowStatistics: () -> Unit,
     scaffoldPadding: androidx.compose.foundation.layout.PaddingValues
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -198,6 +199,14 @@ fun InputSelectionScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.align(Alignment.Center)
             )
+
+            // Statistics Button
+            TextButton(
+                onClick = onShowStatistics,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                Text("Stats")
+            }
         }
 
         ElevatedCard(
@@ -713,7 +722,7 @@ fun ReaderScreen(
     initialIndex: Int,
     settings: AppSettings,
     onSettingsChanged: (AppSettings) -> Unit,
-    onBack: (Int) -> Unit,
+    onBack: (Int, ReadingSession?) -> Unit,
     tts: TextToSpeech?,
     isTtsReady: Boolean,
     modifier: Modifier = Modifier,
@@ -721,6 +730,23 @@ fun ReaderScreen(
 ) {
     var currentIndex by remember { mutableIntStateOf(initialIndex) }
     var isPlaying by remember { mutableStateOf(false) }
+
+    // Session Tracking
+    var sessionStartTime by remember { mutableStateOf(0L) }
+    var wordsReadInSession by remember { mutableIntStateOf(0) }
+    var sessionDurationAccumulated by remember { mutableStateOf(0L) }
+    var lastPlayTime by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            lastPlayTime = System.currentTimeMillis()
+        } else {
+            if (lastPlayTime > 0) {
+                sessionDurationAccumulated += (System.currentTimeMillis() - lastPlayTime)
+                lastPlayTime = 0
+            }
+        }
+    }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var isTtsEnabled by remember { mutableStateOf(false) }
 
@@ -895,10 +921,30 @@ fun ReaderScreen(
     }
 
     val focusRequester = remember { FocusRequester() }
-    BackHandler(onBack = { 
+
+    fun handleBack() {
         tts?.stop()
-        onBack(currentIndex) 
-    })
+        // Finalize session stats
+        if (isPlaying) {
+             sessionDurationAccumulated += (System.currentTimeMillis() - lastPlayTime)
+        }
+
+        val wordsRead = (currentIndex - initialIndex).coerceAtLeast(0)
+        val durationSeconds = (sessionDurationAccumulated / 1000).coerceAtLeast(1)
+
+        // Only save significant sessions (> 5 words or > 5 seconds)
+        val sessionData = if (wordsRead > 5 || durationSeconds > 5) {
+            ReadingSession(
+                durationSeconds = durationSeconds,
+                wordsRead = wordsRead,
+                averageWpm = settings.wpm.toInt()
+            )
+        } else null
+
+        onBack(currentIndex, sessionData)
+    }
+
+    BackHandler(onBack = { handleBack() })
 
     if (showSettingsDialog) {
         SettingsDialog(
@@ -947,8 +993,7 @@ fun ReaderScreen(
                             currentIndex = 0; chunkStartHistory.clear(); focusOffset = 0; true
                         }
                         Key.Escape, Key.Q -> {
-                            tts?.stop()
-                            onBack(currentIndex); true
+                            handleBack(); true
                         }
                         else -> false
                     }
@@ -1049,8 +1094,7 @@ fun ReaderScreen(
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = settings.colorScheme.contextText)
                     }
                     IconButton(onClick = { 
-                        tts?.stop()
-                        onBack(currentIndex) 
+                        handleBack()
                     }) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = settings.colorScheme.contextText)
                     }

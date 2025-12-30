@@ -64,6 +64,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
     var isReading by remember { mutableStateOf(false) }
     var isParsing by remember { mutableStateOf(false) }
     var showVoiceManager by remember { mutableStateOf(false) }
+    var showStatistics by remember { mutableStateOf(false) }
     
     // Current book tracking for resume
     var currentBookUri by remember { mutableStateOf<String?>(null) }
@@ -106,6 +107,10 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             onSettingsChanged = { settings = it },
             onBack = { showVoiceManager = false }
         )
+    } else if (showStatistics) {
+        StatisticsScreen(
+            onBack = { showStatistics = false }
+        )
     } else if (isParsing) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -124,7 +129,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             initialIndex = initialIndex,
             settings = settings,
             onSettingsChanged = { newSettings -> settings = newSettings },
-            onBack = { progressIndex ->
+            onBack = { progressIndex, sessionData ->
                 // Update book progress on exit
                 if (currentBookUri != null) {
                     val updatedList = libraryBooks.map { book ->
@@ -134,6 +139,18 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
                     }
                     libraryBooks = updatedList
                 }
+
+                // Save Session
+                if (sessionData != null) {
+                    val bookTitle = if (currentBookUri != null) {
+                        libraryBooks.find { it.uri == currentBookUri }?.title ?: "Unknown Book"
+                    } else "Quick Read"
+
+                    val session = sessionData.copy(bookTitle = bookTitle)
+                    val history = PersistenceManager.loadReadingHistory(context)
+                    PersistenceManager.saveReadingHistory(context, history + session)
+                }
+
                 isReading = false 
                 currentBookUri = null
             },
@@ -187,6 +204,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             context = context,
             modifier = Modifier,
             onManageVoices = { showVoiceManager = true },
+            onShowStatistics = { showStatistics = true },
             scaffoldPadding = scaffoldPadding
         )
     }
