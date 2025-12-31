@@ -47,6 +47,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
@@ -136,7 +137,8 @@ fun InputSelectionScreen(
     context: Context,
     modifier: Modifier = Modifier,
     onManageVoices: () -> Unit,
-    scaffoldPadding: androidx.compose.foundation.layout.PaddingValues
+    scaffoldPadding: androidx.compose.foundation.layout.PaddingValues,
+    onShowStatistics: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -190,6 +192,26 @@ fun InputSelectionScreen(
                 modifier = Modifier.align(Alignment.CenterStart)
             ) {
                 Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(32.dp))
+            }
+
+            // Statistics Button on Right
+            IconButton(
+                onClick = onShowStatistics,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                // Using a chart icon or similar. SmartToy is already used for AI.
+                // PlayArrow is for read.
+                // Let's use DateRange or List or Info if needed, but maybe just a simple 'Poll' or 'Assessment' icon if available.
+                // Material Icons Extended has 'BarChart' or 'Timeline'.
+                // If not available in default set, use DateRange as fallback or just Text "Stats".
+                // Since we included extended icons dependency, we should check availability or use a standard one.
+                // Using 'Assessment' or 'InsertChart' usually.
+                // Falling back to 'DateRange' which looks like a calendar/report if others fail, but let's try to assume a generic reasonable icon exists or import it.
+                // Actually, let's just use 'Info' or 'Menu' if we can't find a chart one, but wait, 'Settings' is left.
+                // Let's use 'AccountBox' or similar for profile/stats?
+                // Or just 'Star' for achievements/stats.
+                // Let's use Icons.Default.DateRange for now as a "History" log.
+                Icon(Icons.Default.DateRange, contentDescription = "Statistics", modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
             }
 
             Text(
@@ -746,6 +768,56 @@ fun ReaderScreen(
     // Moving Focus State for Sequential Reveal
     var focusOffset by remember { mutableIntStateOf(0) }
     
+    // Statistics Tracking
+    // Note: ReaderScreen is composable, context is available.
+    // If context was already defined above, we use LocalContext.current again or reuse it.
+    // Checking file content, context is NOT defined in ReaderScreen parameters or early body.
+    // However, to be safe and avoid shadowing if added later, we use a distinct name or LocalContext directly.
+    val context = LocalContext.current
+
+    // Track Active Reading Time
+    var activeReadingTimeMs by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var lastActiveTime by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            lastActiveTime = System.currentTimeMillis()
+            while(isPlaying) {
+                delay(1000)
+                val now = System.currentTimeMillis()
+                activeReadingTimeMs += (now - lastActiveTime)
+                lastActiveTime = now
+            }
+        }
+    }
+
+    // Save Session Logic
+    val saveSession = remember(settings.wpm, initialIndex) {
+        { finalIndex: Int ->
+            val wordsRead = (finalIndex - initialIndex).coerceAtLeast(0)
+            // Use active time if available (converted to seconds), else fallback or 0
+            val durationSeconds = activeReadingTimeMs / 1000
+
+            // Only save if meaningful
+            if (durationSeconds > 5 && wordsRead > 10) {
+                 val session = ReadingSession(
+                    timestamp = System.currentTimeMillis(),
+                    durationSeconds = durationSeconds,
+                    wordsRead = wordsRead,
+                    wpm = settings.wpm.toInt()
+                )
+                PersistenceManager.saveReadingSession(context, session)
+            }
+        }
+    }
+
+    // Save on Dispose (e.g. back press, tab switch, app backgrounding causing activity destroy)
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            saveSession(currentIndex)
+        }
+    }
+
     // Resources for measurement
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
@@ -897,6 +969,7 @@ fun ReaderScreen(
     val focusRequester = remember { FocusRequester() }
     BackHandler(onBack = { 
         tts?.stop()
+        // Stats saved via DisposableEffect on exit
         onBack(currentIndex) 
     })
 
@@ -948,6 +1021,7 @@ fun ReaderScreen(
                         }
                         Key.Escape, Key.Q -> {
                             tts?.stop()
+                            // Stats saved via DisposableEffect on exit
                             onBack(currentIndex); true
                         }
                         else -> false
@@ -1050,6 +1124,7 @@ fun ReaderScreen(
                     }
                     IconButton(onClick = { 
                         tts?.stop()
+                        // Stats saved via DisposableEffect on exit
                         onBack(currentIndex) 
                     }) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = settings.colorScheme.contextText)

@@ -64,6 +64,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
     var isReading by remember { mutableStateOf(false) }
     var isParsing by remember { mutableStateOf(false) }
     var showVoiceManager by remember { mutableStateOf(false) }
+    var showStatistics by remember { mutableStateOf(false) }
     
     // Current book tracking for resume
     var currentBookUri by remember { mutableStateOf<String?>(null) }
@@ -100,7 +101,11 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
         }
     }
 
-    if (showVoiceManager) {
+    if (showStatistics) {
+        StatisticsScreen(
+            onBack = { showStatistics = false }
+        )
+    } else if (showVoiceManager) {
         VoiceManagerScreen(
             currentSettings = settings,
             onSettingsChanged = { settings = it },
@@ -187,7 +192,8 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             context = context,
             modifier = Modifier,
             onManageVoices = { showVoiceManager = true },
-            scaffoldPadding = scaffoldPadding
+            scaffoldPadding = scaffoldPadding,
+            onShowStatistics = { showStatistics = true }
         )
     }
 }
