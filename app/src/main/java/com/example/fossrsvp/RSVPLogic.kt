@@ -9,7 +9,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import java.io.BufferedInputStream
+import java.io.File
 import java.util.Locale
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import kotlin.math.min
 
@@ -132,6 +134,95 @@ suspend fun extractTextFromPdf(context: Context, uri: Uri): String = withContext
 }
 
 suspend fun extractTextFromEpub(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
+    val tempFile = File(context.cacheDir, "temp_book.epub")
+    try {
+        // Copy to temp file
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            tempFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        } ?: return@withContext "Error reading EPUB stream."
+
+        val zipFile = ZipFile(tempFile)
+
+        // 1. Find OPF Path from container.xml
+        val containerEntry = zipFile.getEntry("META-INF/container.xml")
+        val opfPath = if (containerEntry != null) {
+            val containerXml = zipFile.getInputStream(containerEntry).bufferedReader().use { it.readText() }
+            val doc = Jsoup.parse(containerXml, "", org.jsoup.parser.Parser.xmlParser())
+            doc.select("rootfile").attr("full-path")
+        } else {
+            null
+        }
+
+        if (opfPath == null) {
+            zipFile.close()
+            // Fallback to naive iteration if container.xml is missing (rare but possible)
+            return@withContext extractTextFromEpubNaive(context, uri)
+        }
+
+        // 2. Parse OPF
+        val opfEntry = zipFile.getEntry(opfPath)
+        if (opfEntry == null) {
+            zipFile.close()
+            return@withContext "Invalid EPUB: OPF file not found at $opfPath"
+        }
+
+        val opfContent = zipFile.getInputStream(opfEntry).bufferedReader().use { it.readText() }
+        val opfDoc = Jsoup.parse(opfContent, "", org.jsoup.parser.Parser.xmlParser())
+
+        // 3. Get Manifest (id -> href)
+        val manifest = mutableMapOf<String, String>()
+        val manifestItems = opfDoc.select("manifest > item")
+        for (item in manifestItems) {
+            val id = item.attr("id")
+            val href = item.attr("href")
+            manifest[id] = href
+        }
+
+        // 4. Get Spine (ordered ids)
+        val spineIds = opfDoc.select("spine > itemref").map { it.attr("idref") }
+
+        // 5. Build Content
+        val sb = StringBuilder()
+        val opfDir = File(opfPath).parent ?: ""
+
+        for (id in spineIds) {
+            val href = manifest[id] ?: continue
+            // Resolve relative path
+            val fullPath = if (opfDir.isEmpty()) href else "$opfDir/$href"
+
+            // Handle URL decoding if necessary (ZipEntry names are usually safe but href might be percent encoded)
+            val entry = zipFile.getEntry(fullPath) ?: zipFile.getEntry(java.net.URLDecoder.decode(fullPath, "UTF-8"))
+
+            if (entry != null) {
+                val html = zipFile.getInputStream(entry).bufferedReader().use { it.readText() }
+                // Parse and extract text
+                val doc = Jsoup.parse(html)
+
+                // Add newlines around block elements to preserve structure for parsing logic
+                doc.select("br").append("\\n")
+                doc.select("p, div, h1, h2, h3, h4, h5, h6, li").prepend("\\n\\n")
+
+                // Clean the text
+                val text = doc.text().replace("\\n", "\n")
+                sb.append(text).append("\n\n")
+            }
+        }
+
+        zipFile.close()
+        tempFile.delete()
+
+        sb.toString().ifBlank { "Could not extract text from EPUB." }
+
+    } catch (e: Exception) {
+        tempFile.delete()
+        "Error parsing EPUB: ${e.localizedMessage}"
+    }
+}
+
+// Keep the old method as a fallback
+suspend fun extractTextFromEpubNaive(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
     try {
         val stringBuilder = StringBuilder()
         context.contentResolver.openInputStream(uri)?.use { inputStream ->
@@ -236,5 +327,37 @@ suspend fun generateTextWithGemini(apiKey: String, prompt: String, preset: Strin
         response.text ?: "No response generated."
     } catch (e: Exception) {
         "Gemini Error: ${e.localizedMessage}"
+    }
+}
+
+suspend fun generateQuiz(apiKey: String, textContext: String, modelName: String): Quiz? = withContext(Dispatchers.IO) {
+    try {
+        val model = GenerativeModel(modelName, apiKey)
+        val prompt = """
+            Based on the following text, generate a quiz with 3 to 5 multiple-choice questions.
+            Return ONLY the JSON object with this structure:
+            {
+              "questions": [
+                {
+                  "question": "Question text here?",
+                  "options": ["Option A", "Option B", "Option C", "Option D"],
+                  "correctOptionIndex": 0 // Index (0-3) of the correct option
+                }
+              ]
+            }
+            Do not include any markdown formatting (like ```json), just the raw JSON string.
+
+            Text:
+            ${textContext.take(15000)} // Limit context to avoid token limits
+        """.trimIndent()
+
+        val response = model.generateContent(prompt)
+        val jsonString = response.text?.trim()?.removePrefix("```json")?.removePrefix("```")?.removeSuffix("```")?.trim() ?: return@withContext null
+
+        val gson = com.google.gson.Gson()
+        gson.fromJson(jsonString, Quiz::class.java)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
     }
 }

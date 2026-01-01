@@ -67,6 +67,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlin.math.min
 
+val PremiumRadius = 28.dp
+
 @Composable
 fun SettingsDialog(
     currentSettings: AppSettings,
