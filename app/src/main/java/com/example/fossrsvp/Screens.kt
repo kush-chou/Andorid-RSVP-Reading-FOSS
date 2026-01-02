@@ -294,6 +294,37 @@ fun PasteInput(onStartReading: (String, String?, Boolean, String?) -> Unit) {
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
             )
         )
+
+        val clipboardManager = LocalClipboardManager.current
+        val context = LocalContext.current
+
+        if (text.isEmpty()) {
+            TextButton(
+                onClick = {
+                    val clipData = clipboardManager.getText()
+                    if (clipData != null && clipData.text.isNotEmpty()) {
+                        text = clipData.text
+                    } else {
+                        Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                 Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp))
+                 Spacer(modifier = Modifier.width(8.dp))
+                 Text("Paste from Clipboard")
+            }
+        } else {
+            TextButton(
+                onClick = { text = "" },
+                 modifier = Modifier.align(Alignment.End)
+            ) {
+                 Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                 Spacer(modifier = Modifier.width(8.dp))
+                 Text("Clear Text")
+            }
+        }
+
         Button(
             onClick = { onStartReading(text, null, false, null) },
             enabled = text.isNotBlank(),
