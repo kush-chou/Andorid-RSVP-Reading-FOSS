@@ -9,8 +9,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import java.io.BufferedInputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.util.Locale
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
+import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Element
 import kotlin.math.min
 
 // --- Logic ---
@@ -132,25 +137,98 @@ suspend fun extractTextFromPdf(context: Context, uri: Uri): String = withContext
 }
 
 suspend fun extractTextFromEpub(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
+    var tempFile: File? = null
     try {
-        val stringBuilder = StringBuilder()
+        tempFile = File.createTempFile("epub_import", ".epub", context.cacheDir)
         context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            val zipInputStream = ZipInputStream(BufferedInputStream(inputStream))
-            var entry = zipInputStream.nextEntry
-            while (entry != null) {
-                if (entry.name.endsWith(".html") || entry.name.endsWith(".xhtml")) {
-                    val bytes = zipInputStream.readBytes()
-                    val htmlContent = String(bytes, Charsets.UTF_8)
-                    // Parse HTML fragment
+            FileOutputStream(tempFile).use { outputStream ->
+                inputStream.copyTo(outputStream)
+            }
+        }
+        parseEpubFile(tempFile!!)
+    } catch (e: Exception) {
+        "Error reading EPUB: ${e.localizedMessage}"
+    } finally {
+        tempFile?.delete()
+    }
+}
+
+fun parseEpubFile(file: File): String {
+    try {
+        ZipFile(file).use { zip ->
+            // 1. Find META-INF/container.xml to locate the OPF file
+            val containerEntry = zip.getEntry("META-INF/container.xml")
+                ?: return "Invalid EPUB: Missing META-INF/container.xml"
+
+            val containerStream = zip.getInputStream(containerEntry)
+            val dbFactory = DocumentBuilderFactory.newInstance()
+            // Important for secure parsing
+            dbFactory.isNamespaceAware = true
+            val dBuilder = dbFactory.newDocumentBuilder()
+            val containerDoc = dBuilder.parse(containerStream)
+
+            val rootFiles = containerDoc.getElementsByTagName("rootfile")
+            if (rootFiles.length == 0) return "Invalid EPUB: No rootfile found in container.xml"
+
+            // Usually the first one is fine, or check media-type="application/oebps-package+xml"
+            val rootFileElement = rootFiles.item(0) as Element
+            val opfPath = rootFileElement.getAttribute("full-path")
+
+            if (opfPath.isBlank()) return "Invalid EPUB: rootfile has no full-path"
+
+            // 2. Parse OPF file to get the spine
+            val opfEntry = zip.getEntry(opfPath) ?: return "Invalid EPUB: OPF file not found at $opfPath"
+            val opfStream = zip.getInputStream(opfEntry)
+            val opfDoc = dBuilder.parse(opfStream)
+
+            // Extract manifest items (id -> href)
+            val manifestItems = mutableMapOf<String, String>()
+            val manifest = opfDoc.getElementsByTagName("manifest").item(0) as? Element
+            val items = manifest?.getElementsByTagName("item")
+
+            if (items != null) {
+                for (i in 0 until items.length) {
+                    val item = items.item(i) as Element
+                    val id = item.getAttribute("id")
+                    val href = item.getAttribute("href")
+                    manifestItems[id] = href
+                }
+            }
+
+            // Extract spine (ordered itemrefs)
+            val spineItems = mutableListOf<String>()
+            val spine = opfDoc.getElementsByTagName("spine").item(0) as? Element
+            val itemrefs = spine?.getElementsByTagName("itemref")
+
+            if (itemrefs != null) {
+                for (i in 0 until itemrefs.length) {
+                    val itemref = itemrefs.item(i) as Element
+                    val idref = itemref.getAttribute("idref")
+                    manifestItems[idref]?.let { href ->
+                        spineItems.add(href)
+                    }
+                }
+            }
+
+            // 3. Extract text from each spine item in order
+            val stringBuilder = StringBuilder()
+            val opfDir = File(opfPath).parent ?: ""
+
+            for (href in spineItems) {
+                // Href is relative to OPF file
+                val fullPath = if (opfDir.isNotEmpty()) "$opfDir/$href" else href
+                val entry = zip.getEntry(fullPath)
+                if (entry != null) {
+                    val htmlContent = zip.getInputStream(entry).bufferedReader().use { it.readText() }
                     val doc = Jsoup.parse(htmlContent)
                     stringBuilder.append(doc.body().text()).append("\n\n")
                 }
-                entry = zipInputStream.nextEntry
             }
+
+            return stringBuilder.toString().ifBlank { "EPUB appears empty." }
         }
-        stringBuilder.toString().ifBlank { "Could not extract text from EPUB." }
     } catch (e: Exception) {
-        "Error reading EPUB: ${e.localizedMessage}"
+        return "Error parsing EPUB file: ${e.localizedMessage}"
     }
 }
 
