@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,6 +65,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
     var isReading by remember { mutableStateOf(false) }
     var isParsing by remember { mutableStateOf(false) }
     var showVoiceManager by remember { mutableStateOf(false) }
+    var showStatistics by remember { mutableStateOf(false) }
     
     // Current book tracking for resume
     var currentBookUri by remember { mutableStateOf<String?>(null) }
@@ -71,6 +73,10 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
     // Global TTS instance holder
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var isTtsReady by remember { mutableStateOf(false) }
+
+    // Statistics Tracking
+    var sessionStartTime by remember { mutableStateOf(0L) }
+    var sessionStartWordIndex by remember { mutableIntStateOf(0) }
     
     DisposableEffect(Unit) {
         tts = TextToSpeech(context) { status ->
@@ -106,6 +112,10 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             onSettingsChanged = { settings = it },
             onBack = { showVoiceManager = false }
         )
+    } else if (showStatistics) {
+        StatisticsScreen(
+            onBack = { showStatistics = false }
+        )
     } else if (isParsing) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -134,8 +144,29 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
                     }
                     libraryBooks = updatedList
                 }
+
+                // Save Session Stats
+                if (sessionStartTime > 0) {
+                    val duration = (System.currentTimeMillis() - sessionStartTime) / 1000
+                    val wordsRead = (progressIndex - sessionStartWordIndex).coerceAtLeast(0)
+                    if (duration > 5 && wordsRead > 10) { // Only save meaningful sessions
+                        val session = ReadingSession(
+                            timestamp = System.currentTimeMillis(),
+                            durationSeconds = duration,
+                            wordsRead = wordsRead,
+                            wpm = settings.wpm.toInt()
+                        )
+                        PersistenceManager.saveSession(context, session)
+                    }
+                }
+
                 isReading = false 
                 currentBookUri = null
+                sessionStartTime = 0L // Reset
+            },
+            onReadingStarted = { startIndex ->
+                sessionStartTime = System.currentTimeMillis()
+                sessionStartWordIndex = startIndex
             },
             tts = tts,
             isTtsReady = isTtsReady,
@@ -187,6 +218,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             context = context,
             modifier = Modifier,
             onManageVoices = { showVoiceManager = true },
+            onShowStatistics = { showStatistics = true },
             scaffoldPadding = scaffoldPadding
         )
     }

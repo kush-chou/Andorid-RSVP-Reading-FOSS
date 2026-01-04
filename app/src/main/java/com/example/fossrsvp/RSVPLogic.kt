@@ -133,25 +133,29 @@ suspend fun extractTextFromPdf(context: Context, uri: Uri): String = withContext
 
 suspend fun extractTextFromEpub(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
     try {
-        val stringBuilder = StringBuilder()
         context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            val zipInputStream = ZipInputStream(BufferedInputStream(inputStream))
-            var entry = zipInputStream.nextEntry
-            while (entry != null) {
-                if (entry.name.endsWith(".html") || entry.name.endsWith(".xhtml")) {
-                    val bytes = zipInputStream.readBytes()
-                    val htmlContent = String(bytes, Charsets.UTF_8)
-                    // Parse HTML fragment
-                    val doc = Jsoup.parse(htmlContent)
-                    stringBuilder.append(doc.body().text()).append("\n\n")
-                }
-                entry = zipInputStream.nextEntry
-            }
-        }
-        stringBuilder.toString().ifBlank { "Could not extract text from EPUB." }
+            parseEpubFromStream(inputStream)
+        } ?: "Error reading file"
     } catch (e: Exception) {
         "Error reading EPUB: ${e.localizedMessage}"
     }
+}
+
+fun parseEpubFromStream(inputStream: java.io.InputStream): String {
+    val stringBuilder = StringBuilder()
+    val zipInputStream = ZipInputStream(BufferedInputStream(inputStream))
+    var entry = zipInputStream.nextEntry
+    while (entry != null) {
+        if (entry.name.endsWith(".html") || entry.name.endsWith(".xhtml")) {
+            val bytes = zipInputStream.readBytes()
+            val htmlContent = String(bytes, Charsets.UTF_8)
+            // Parse HTML fragment
+            val doc = Jsoup.parse(htmlContent)
+            stringBuilder.append(doc.body().text()).append("\n\n")
+        }
+        entry = zipInputStream.nextEntry
+    }
+    return stringBuilder.toString().ifBlank { "Could not extract text from EPUB." }
 }
 
 suspend fun extractTextFromUrl(url: String): String = withContext(Dispatchers.IO) {
@@ -237,4 +241,76 @@ suspend fun generateTextWithGemini(apiKey: String, prompt: String, preset: Strin
     } catch (e: Exception) {
         "Gemini Error: ${e.localizedMessage}"
     }
+}
+
+suspend fun generateQuiz(apiKey: String, text: String, modelName: String = "gemini-pro"): List<QuizQuestion> = withContext(Dispatchers.IO) {
+    try {
+        val model = GenerativeModel(modelName, apiKey)
+        // Take a chunk of the text if it's too long to avoid token limits
+        val textContext = text.take(5000)
+
+        val prompt = """
+            Generate 3 multiple-choice questions based on the following text.
+            Format your response strictly as a JSON array of objects.
+            Each object must have:
+            - "question": string
+            - "options": list of 4 strings
+            - "correctIndex": integer (0-3)
+            - "explanation": string (brief explanation of why the answer is correct)
+
+            Do not include any markdown formatting like ```json or ```. Just the raw JSON.
+
+            Text:
+            $textContext
+        """.trimIndent()
+
+        val response = model.generateContent(prompt)
+        val jsonString = response.text?.replace("```json", "")?.replace("```", "")?.trim() ?: "[]"
+
+        // Simple manual parsing or use a library if available.
+        // Since we don't have Gson/Moshi in dependencies yet (need to check), we'll try a regex or simple parse.
+        // Actually, let's add Gson to build.gradle or use manual parsing for now to avoid dependency hell in this session.
+        // Or better, since we are in Kotlin, we can try to be robust with Regex for this simple structure.
+
+        parseQuizJson(jsonString)
+
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+private fun parseQuizJson(json: String): List<QuizQuestion> {
+    val questions = mutableListOf<QuizQuestion>()
+    try {
+        // Very basic manual parsing to avoid external dependencies for this task.
+        // This expects the AI to follow the format closely.
+
+        // Split by objects
+        val objectRegex = Regex("\\{.*?\\}", RegexOption.DOT_MATCHES_ALL)
+        val objects = objectRegex.findAll(json)
+
+        for (match in objects) {
+            val objStr = match.value
+
+            val questionMatch = Regex("\"question\"\\s*:\\s*\"(.*?)\"", RegexOption.DOT_MATCHES_ALL).find(objStr)
+            val question = questionMatch?.groupValues?.get(1) ?: continue
+
+            val optionsMatch = Regex("\"options\"\\s*:\\s*\\[(.*?)\\]", RegexOption.DOT_MATCHES_ALL).find(objStr)
+            val optionsStr = optionsMatch?.groupValues?.get(1) ?: ""
+            val options = optionsStr.split(",").map { it.trim().trim('"') }.filter { it.isNotEmpty() }
+
+            val correctIndexMatch = Regex("\"correctIndex\"\\s*:\\s*(\\d+)").find(objStr)
+            val correctIndex = correctIndexMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+            val explanationMatch = Regex("\"explanation\"\\s*:\\s*\"(.*?)\"", RegexOption.DOT_MATCHES_ALL).find(objStr)
+            val explanation = explanationMatch?.groupValues?.get(1) ?: ""
+
+            if (options.size >= 2) {
+                questions.add(QuizQuestion(question, options, correctIndex, explanation))
+            }
+        }
+    } catch (e: Exception) {
+        // Fallback or log
+    }
+    return questions
 }
