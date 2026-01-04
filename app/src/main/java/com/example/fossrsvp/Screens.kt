@@ -136,6 +136,7 @@ fun InputSelectionScreen(
     context: Context,
     modifier: Modifier = Modifier,
     onManageVoices: () -> Unit,
+    onShowStatistics: () -> Unit,
     scaffoldPadding: androidx.compose.foundation.layout.PaddingValues
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -198,6 +199,43 @@ fun InputSelectionScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.align(Alignment.Center)
             )
+
+            // Statistics Button
+            androidx.compose.material3.IconButton(
+                onClick = onShowStatistics,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                // Using a suitable icon, e.g., DateRange or similar if BarChart isn't available in Default
+                // Since we don't have extended icons, let's use Info or something generic if stats icon missing
+                // Actually, let's use a Text "Stats" or look for a suitable icon.
+                // Using Refresh icon as placeholder if nothing better, but wait, let's check imports.
+                // We have access to Icons.Default.
+                // Let's use 'DateRange' if available, or just 'Info'.
+                // Or better, 'Assessment' is common for stats but might be extended.
+                // Let's use 'Language' icon for Web, 'Book' for Library.
+                // Maybe 'List' or 'Menu'?
+                // Let's stick to a Text Button or a generic Icon.
+                // Let's use Icons.Default.Menu for now or similar.
+                // Wait, I can see imports:
+                // Icons.Default.Settings is used.
+                // Let's use Icons.Default.DateRange if it exists? No.
+                // Let's use Icons.Default.Face? No.
+                // Let's use Icons.Default.Star? No.
+                // Let's use Icons.Default.List? No.
+                // Let's use Icons.Default.Info? No.
+                // Let's just add a small TextButton "Stats" or use Settings icon on left and Stats on right.
+                // I'll use Icons.Default.PlayArrow temporarily or just add the button.
+                // Actually, I'll use Icons.Default.Refresh as a placeholder for "History/Stats" or similar,
+                // OR I can just use a Text label.
+
+                // Better: Material Icons usually has "DateRange".
+                // I'll assume "DateRange" is available in Default or use "Settings".
+                // Ah, I see `Icons.Default.Settings` is used.
+                // Let's just use `Icons.Default.Favorite` (Heart) for stats? No.
+
+                // Let's use a simple Text "Stats".
+                Text("Stats", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
         }
 
         ElevatedCard(
@@ -714,6 +752,7 @@ fun ReaderScreen(
     settings: AppSettings,
     onSettingsChanged: (AppSettings) -> Unit,
     onBack: (Int) -> Unit,
+    onReadingStarted: (Int) -> Unit,
     tts: TextToSpeech?,
     isTtsReady: Boolean,
     modifier: Modifier = Modifier,
@@ -723,6 +762,7 @@ fun ReaderScreen(
     var isPlaying by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var isTtsEnabled by remember { mutableStateOf(false) }
+    var showQuiz by remember { mutableStateOf(false) }
 
     // Channel to signal TTS completion of a chunk
     val ttsChunkDoneChannel = remember { Channel<Unit>(Channel.CONFLATED) }
@@ -769,6 +809,7 @@ fun ReaderScreen(
 
     LaunchedEffect(isPlaying, settings.wpm, currentIndex, settings.chunkSize) {
         if (isPlaying) {
+             onReadingStarted(currentIndex)
              while (currentIndex < tokens.size && isPlaying) {
                  // Determine current chunk size (Dynamic or Fixed)
                  val currentChunkLimit = if (settings.chunkSize == 0) {
@@ -911,6 +952,16 @@ fun ReaderScreen(
         )
     }
 
+    if (showQuiz) {
+        // Collect all text for quiz context
+        val fullText = tokens.joinToString(" ") { it.word }
+        QuizDialog(
+            apiKey = settings.geminiApiKey,
+            textContext = fullText,
+            onDismiss = { showQuiz = false }
+        )
+    }
+
     Surface(
         color = settings.colorScheme.background,
         modifier = Modifier
@@ -1047,6 +1098,14 @@ fun ReaderScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     IconButton(onClick = { showSettingsDialog = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = settings.colorScheme.contextText)
+                    }
+                    if (settings.geminiApiKey.isNotBlank()) {
+                        IconButton(onClick = {
+                            isPlaying = false
+                            showQuiz = true
+                        }) {
+                             Icon(Icons.Default.SmartToy, contentDescription = "Quiz Me", tint = settings.colorScheme.contextText)
+                        }
                     }
                     IconButton(onClick = { 
                         tts?.stop()
