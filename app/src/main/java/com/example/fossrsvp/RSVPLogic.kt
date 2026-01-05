@@ -133,25 +133,29 @@ suspend fun extractTextFromPdf(context: Context, uri: Uri): String = withContext
 
 suspend fun extractTextFromEpub(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
     try {
-        val stringBuilder = StringBuilder()
         context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            val zipInputStream = ZipInputStream(BufferedInputStream(inputStream))
-            var entry = zipInputStream.nextEntry
-            while (entry != null) {
-                if (entry.name.endsWith(".html") || entry.name.endsWith(".xhtml")) {
-                    val bytes = zipInputStream.readBytes()
-                    val htmlContent = String(bytes, Charsets.UTF_8)
-                    // Parse HTML fragment
-                    val doc = Jsoup.parse(htmlContent)
-                    stringBuilder.append(doc.body().text()).append("\n\n")
-                }
-                entry = zipInputStream.nextEntry
-            }
-        }
-        stringBuilder.toString().ifBlank { "Could not extract text from EPUB." }
+            parseEpubFromStream(inputStream)
+        } ?: "Error reading file"
     } catch (e: Exception) {
         "Error reading EPUB: ${e.localizedMessage}"
     }
+}
+
+fun parseEpubFromStream(inputStream: java.io.InputStream): String {
+    val stringBuilder = StringBuilder()
+    val zipInputStream = ZipInputStream(BufferedInputStream(inputStream))
+    var entry = zipInputStream.nextEntry
+    while (entry != null) {
+        if (entry.name.endsWith(".html") || entry.name.endsWith(".xhtml")) {
+            val bytes = zipInputStream.readBytes()
+            val htmlContent = String(bytes, Charsets.UTF_8)
+            // Parse HTML fragment
+            val doc = Jsoup.parse(htmlContent)
+            stringBuilder.append(doc.body().text()).append("\n\n")
+        }
+        entry = zipInputStream.nextEntry
+    }
+    return stringBuilder.toString().ifBlank { "Could not extract text from EPUB." }
 }
 
 suspend fun extractTextFromUrl(url: String): String = withContext(Dispatchers.IO) {
@@ -236,5 +240,48 @@ suspend fun generateTextWithGemini(apiKey: String, prompt: String, preset: Strin
         response.text ?: "No response generated."
     } catch (e: Exception) {
         "Gemini Error: ${e.localizedMessage}"
+    }
+}
+
+suspend fun generateQuiz(apiKey: String, text: String, modelName: String = "gemini-pro"): Quiz = withContext(Dispatchers.IO) {
+    try {
+        val model = GenerativeModel(modelName, apiKey)
+        val prompt = """
+            Generate a multiple-choice quiz based on the following text.
+            Return the output in the following JSON format ONLY, without any markdown formatting or code blocks:
+            [
+              {
+                "question": "Question text here",
+                "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+                "answer_index": 0
+              }
+            ]
+
+            Text:
+            $text
+        """.trimIndent()
+
+        val response = model.generateContent(prompt)
+        val jsonString = response.text?.replace("```json", "")?.replace("```", "")?.trim() ?: "[]"
+
+        val jsonArray = org.json.JSONArray(jsonString)
+        val questions = mutableListOf<Question>()
+
+        for (i in 0 until jsonArray.length()) {
+            val obj = jsonArray.getJSONObject(i)
+            val questionText = obj.getString("question")
+            val optionsArray = obj.getJSONArray("options")
+            val options = mutableListOf<String>()
+            for (j in 0 until optionsArray.length()) {
+                options.add(optionsArray.getString(j))
+            }
+            val correctIndex = obj.getInt("answer_index")
+            questions.add(Question(questionText, options, correctIndex))
+        }
+
+        Quiz(questions)
+    } catch (e: Exception) {
+        // Fallback or empty quiz on error
+        Quiz(emptyList())
     }
 }

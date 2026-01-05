@@ -64,6 +64,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
     var isReading by remember { mutableStateOf(false) }
     var isParsing by remember { mutableStateOf(false) }
     var showVoiceManager by remember { mutableStateOf(false) }
+    var showStatistics by remember { mutableStateOf(false) }
     
     // Current book tracking for resume
     var currentBookUri by remember { mutableStateOf<String?>(null) }
@@ -100,7 +101,13 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
         }
     }
 
-    if (showVoiceManager) {
+    if (showStatistics) {
+        val sessions = remember { PersistenceManager.loadReadingSessions(context) }
+        StatisticsScreen(
+            sessions = sessions,
+            onBack = { showStatistics = false }
+        )
+    } else if (showVoiceManager) {
         VoiceManagerScreen(
             currentSettings = settings,
             onSettingsChanged = { settings = it },
@@ -119,6 +126,9 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             libraryBooks.find { it.uri == currentBookUri }?.progressIndex ?: 0
         } else 0
         
+        // Track session start time
+        val sessionStartTime = remember { System.currentTimeMillis() }
+
         ReaderScreen(
             tokens = tokens,
             initialIndex = initialIndex,
@@ -134,6 +144,19 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
                     }
                     libraryBooks = updatedList
                 }
+
+                // Save Statistics
+                val duration = (System.currentTimeMillis() - sessionStartTime) / 1000
+                val wordsRead = progressIndex - initialIndex
+                if (duration > 10 && wordsRead > 0) { // Only save meaningful sessions
+                    val session = ReadingSession(
+                        durationSeconds = duration,
+                        wordsRead = wordsRead,
+                        wpm = settings.wpm.toInt()
+                    )
+                    PersistenceManager.saveReadingSession(context, session)
+                }
+
                 isReading = false 
                 currentBookUri = null
             },
@@ -187,7 +210,8 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             context = context,
             modifier = Modifier,
             onManageVoices = { showVoiceManager = true },
-            scaffoldPadding = scaffoldPadding
+            scaffoldPadding = scaffoldPadding,
+            onShowStatistics = { showStatistics = true }
         )
     }
 }

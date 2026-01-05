@@ -115,6 +115,7 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -136,7 +137,8 @@ fun InputSelectionScreen(
     context: Context,
     modifier: Modifier = Modifier,
     onManageVoices: () -> Unit,
-    scaffoldPadding: androidx.compose.foundation.layout.PaddingValues
+    scaffoldPadding: androidx.compose.foundation.layout.PaddingValues,
+    onShowStatistics: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -152,7 +154,8 @@ fun InputSelectionScreen(
             onDismiss = { showSettingsDialog = false },
             tts = tts,
             isTtsReady = isTtsReady,
-            onManageVoices = onManageVoices
+            onManageVoices = onManageVoices,
+            onShowStatistics = onShowStatistics
         )
     }
 
@@ -723,6 +726,11 @@ fun ReaderScreen(
     var isPlaying by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var isTtsEnabled by remember { mutableStateOf(false) }
+    var showQuizDialog by remember { mutableStateOf(false) }
+    var quiz by remember { mutableStateOf<Quiz?>(null) }
+    var isGeneratingQuiz by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // Channel to signal TTS completion of a chunk
     val ttsChunkDoneChannel = remember { Channel<Unit>(Channel.CONFLATED) }
@@ -911,6 +919,23 @@ fun ReaderScreen(
         )
     }
 
+    if (showQuizDialog && quiz != null) {
+        QuizDialog(quiz = quiz!!, onDismiss = { showQuizDialog = false })
+    }
+
+    if (isGeneratingQuiz) {
+        Dialog(onDismissRequest = {}) {
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .background(MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+    }
+
     Surface(
         color = settings.colorScheme.background,
         modifier = Modifier
@@ -1048,6 +1073,25 @@ fun ReaderScreen(
                     IconButton(onClick = { showSettingsDialog = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = settings.colorScheme.contextText)
                     }
+                    IconButton(onClick = {
+                        // Generate Quiz
+                        if (settings.geminiApiKey.isNotBlank()) {
+                            scope.launch {
+                                isGeneratingQuiz = true
+                                val textContext = tokens.joinToString(" ") { it.word }
+                                // Take a slice to avoid token limit if too long
+                                val limitedText = textContext.take(10000)
+                                quiz = generateQuiz(settings.geminiApiKey, limitedText)
+                                isGeneratingQuiz = false
+                                showQuizDialog = true
+                            }
+                        } else {
+                            Toast.makeText(context, "Set Gemini API Key to use Quiz", Toast.LENGTH_SHORT).show()
+                        }
+                    }) {
+                        Icon(Icons.Default.SmartToy, contentDescription = "Quiz Me", tint = settings.colorScheme.contextText)
+                    }
+
                     IconButton(onClick = { 
                         tts?.stop()
                         onBack(currentIndex) 
