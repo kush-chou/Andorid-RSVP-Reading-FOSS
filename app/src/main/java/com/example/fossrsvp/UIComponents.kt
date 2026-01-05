@@ -74,7 +74,8 @@ fun SettingsDialog(
     onDismiss: () -> Unit,
     tts: TextToSpeech?,
     isTtsReady: Boolean,
-    onManageVoices: () -> Unit
+    onManageVoices: () -> Unit,
+    onShowStatistics: (() -> Unit)? = null
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -108,7 +109,7 @@ fun SettingsDialog(
                 }
 
                 HorizontalDivider()
-                SettingsContent(currentSettings, onSettingsChanged, tts, isTtsReady, onManageVoices)
+                SettingsContent(currentSettings, onSettingsChanged, tts, isTtsReady, onManageVoices, onShowStatistics)
             }
         }
     }
@@ -120,7 +121,8 @@ fun SettingsContent(
     onSettingsChanged: (AppSettings) -> Unit,
     tts: TextToSpeech?,
     isTtsReady: Boolean,
-    onManageVoices: () -> Unit
+    onManageVoices: () -> Unit,
+    onShowStatistics: (() -> Unit)? = null
 ) {
     UserInterfaceSettings(currentSettings, onSettingsChanged)
     HorizontalDivider()
@@ -129,6 +131,17 @@ fun SettingsContent(
     VoiceSettings(currentSettings, onSettingsChanged, tts, isTtsReady, onManageVoices)
     HorizontalDivider()
     GenerativeAISettings(currentSettings, onSettingsChanged)
+
+    if (onShowStatistics != null) {
+        HorizontalDivider()
+        Text("Statistics", style = MaterialTheme.typography.titleMedium)
+        Button(
+            onClick = onShowStatistics,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("View Reading Statistics")
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
