@@ -9,6 +9,7 @@ object PersistenceManager {
     private const val KEY_SETTINGS = "app_settings"
     private const val KEY_LIBRARY = "library_books"
     private const val KEY_CHAT_HISTORY = "chat_history"
+    private const val KEY_STATISTICS = "reading_sessions"
 
     private val gson = Gson()
 
@@ -52,6 +53,34 @@ object PersistenceManager {
         return if (json != null) {
             try {
                 val type = object : TypeToken<List<Book>>() {}.type
+                gson.fromJson(json, type)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+    }
+
+    // --- Statistics Persistence ---
+    fun saveSession(context: Context, session: ReadingSession) {
+        val currentList = loadSessions(context).toMutableList()
+        currentList.add(session)
+
+        val json = gson.toJson(currentList)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_STATISTICS, json)
+            .apply()
+    }
+
+    fun loadSessions(context: Context): List<ReadingSession> {
+        val json = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_STATISTICS, null)
+
+        return if (json != null) {
+            try {
+                val type = object : TypeToken<List<ReadingSession>>() {}.type
                 gson.fromJson(json, type)
             } catch (e: Exception) {
                 emptyList()

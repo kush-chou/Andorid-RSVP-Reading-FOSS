@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -136,6 +137,7 @@ fun InputSelectionScreen(
     context: Context,
     modifier: Modifier = Modifier,
     onManageVoices: () -> Unit,
+    onShowStatistics: () -> Unit,
     scaffoldPadding: androidx.compose.foundation.layout.PaddingValues
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -198,6 +200,14 @@ fun InputSelectionScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.align(Alignment.Center)
             )
+
+            IconButton(
+                onClick = onShowStatistics,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                // Using List since ShowChart is not in Default/Automirrored in this material version
+                Icon(Icons.Default.List, contentDescription = "Statistics", modifier = Modifier.size(32.dp))
+            }
         }
 
         ElevatedCard(

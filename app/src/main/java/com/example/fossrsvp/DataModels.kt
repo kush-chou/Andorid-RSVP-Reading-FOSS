@@ -21,6 +21,15 @@ data class RSVPToken(
     val imageUrl: String? = null
 )
 
+data class ReadingSession(
+    val sessionId: String = java.util.UUID.randomUUID().toString(),
+    val timestamp: Long = System.currentTimeMillis(),
+    val durationSeconds: Int,
+    val wordsRead: Int,
+    val averageWpm: Int,
+    val source: String // "Web", "Book", "Paste", "AI"
+)
+
 data class AppSettings(
     val colorScheme: ColorSchemeOption = ColorSchemeOption.WhiteOnBlack,
     val font: FontOption = FontOption.Bookerly,
