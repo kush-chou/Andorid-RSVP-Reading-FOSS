@@ -238,3 +238,36 @@ suspend fun generateTextWithGemini(apiKey: String, prompt: String, preset: Strin
         "Gemini Error: ${e.localizedMessage}"
     }
 }
+
+suspend fun generateQuizWithGemini(apiKey: String, text: String): Quiz? = withContext(Dispatchers.IO) {
+    try {
+        val model = GenerativeModel("gemini-flash-latest", apiKey)
+        val prompt = """
+            Generate a multiple-choice quiz based on the following text.
+            Return ONLY a valid JSON object with the following structure:
+            {
+                "title": "Quiz Title",
+                "questions": [
+                    {
+                        "text": "Question text?",
+                        "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+                        "correctOptionIndex": 0
+                    }
+                ]
+            }
+            Do not include markdown code blocks (```json ... ```), just the raw JSON.
+
+            Text:
+            $text
+        """.trimIndent()
+
+        val response = model.generateContent(prompt)
+        val jsonString = response.text?.replace("```json", "")?.replace("```", "")?.trim() ?: return@withContext null
+
+        val gson = com.google.gson.Gson()
+        gson.fromJson(jsonString, Quiz::class.java)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}

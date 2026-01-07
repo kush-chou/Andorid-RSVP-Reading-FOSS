@@ -717,7 +717,8 @@ fun ReaderScreen(
     tts: TextToSpeech?,
     isTtsReady: Boolean,
     modifier: Modifier = Modifier,
-    onManageVoices: () -> Unit
+    onManageVoices: () -> Unit,
+    onStartQuiz: (Int) -> Unit
 ) {
     var currentIndex by remember { mutableIntStateOf(initialIndex) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -1047,6 +1048,14 @@ fun ReaderScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     IconButton(onClick = { showSettingsDialog = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = settings.colorScheme.contextText)
+                    }
+                    if (settings.geminiApiKey.isNotBlank()) {
+                         IconButton(onClick = {
+                             tts?.stop()
+                             onStartQuiz(currentIndex)
+                         }) {
+                             Icon(Icons.Default.SmartToy, contentDescription = "Quiz Me", tint = settings.colorScheme.contextText)
+                         }
                     }
                     IconButton(onClick = { 
                         tts?.stop()

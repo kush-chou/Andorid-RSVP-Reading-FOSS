@@ -67,6 +67,10 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
     
     // Current book tracking for resume
     var currentBookUri by remember { mutableStateOf<String?>(null) }
+
+    // Quiz State
+    var showQuiz by remember { mutableStateOf(false) }
+    var currentQuiz by remember { mutableStateOf<Quiz?>(null) }
     
     // Global TTS instance holder
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
@@ -106,6 +110,14 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             onSettingsChanged = { settings = it },
             onBack = { showVoiceManager = false }
         )
+    } else if (showQuiz && currentQuiz != null) {
+        QuizUI(
+            quiz = currentQuiz!!,
+            onClose = {
+                showQuiz = false
+                currentQuiz = null
+            }
+        )
     } else if (isParsing) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -142,6 +154,48 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             modifier = Modifier.padding(scaffoldPadding),
             onManageVoices = {
                 showVoiceManager = true
+            },
+            onStartQuiz = { currentIndex ->
+                scope.launch {
+                    isParsing = true
+                    // Context Window Logic:
+                    // We want to test comprehension of what was just read.
+                    // Let's take the previous 1000 words and the next 500 words relative to current index.
+                    // This gives context of where they are.
+                    // Or more simply: Take 2000 words *centered* or *ending* at current index?
+                    // "Quiz Me" usually implies "Test me on what I just read".
+                    // So we look backwards from currentIndex.
+
+                    val lookBack = 2000
+                    val startIndex = (currentIndex - lookBack).coerceAtLeast(0)
+                    // If we are at start, we take forward.
+                    val endIndex = currentIndex.coerceAtLeast(minOf(tokens.size, 500))
+
+                    // Actually, let's grab a chunk around the user.
+                    // If user is at 5000, grab 3000-5000.
+
+                    val safeStart = (currentIndex - 1500).coerceAtLeast(0)
+                    val safeEnd = (currentIndex + 500).coerceAtMost(tokens.size)
+
+                    val segment = tokens.subList(safeStart, safeEnd)
+                    val textContent = segment.joinToString(" ") { it.word }
+
+                    if (textContent.isBlank()) {
+                         android.widget.Toast.makeText(context, "Not enough text to generate a quiz.", android.widget.Toast.LENGTH_SHORT).show()
+                         isParsing = false
+                         return@launch
+                    }
+
+                    val quiz = generateQuizWithGemini(settings.geminiApiKey, textContent)
+                    isParsing = false
+
+                    if (quiz != null && quiz.questions.isNotEmpty()) {
+                        currentQuiz = quiz
+                        showQuiz = true
+                    } else {
+                        android.widget.Toast.makeText(context, "Failed to generate quiz. Try again.", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         )
     } else {

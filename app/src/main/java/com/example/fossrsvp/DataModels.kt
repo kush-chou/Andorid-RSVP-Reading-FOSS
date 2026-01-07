@@ -125,3 +125,14 @@ enum class ContextStyleOption(val displayName: String) {
     CurrentLine("Current line only"),
     MultiLine("Multi-line")
 }
+
+data class Quiz(
+    val title: String,
+    val questions: List<Question>
+)
+
+data class Question(
+    val text: String,
+    val options: List<String>,
+    val correctOptionIndex: Int
+)
