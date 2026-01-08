@@ -39,24 +39,59 @@ class MainActivity : ComponentActivity() {
         PDFBoxResourceLoader.init(applicationContext)
         enableEdgeToEdge()
         setContent {
-            FOSSRSVPTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    RSVPApp(scaffoldPadding = innerPadding)
-                }
-            }
+            RSVPAppWrapper()
         }
     }
 }
 
+@Composable
+fun RSVPAppWrapper() {
+    val context = LocalContext.current
+    // Load settings here to determine theme
+    val settings = remember { PersistenceManager.loadSettings(context) }
+
+    // We need to observe settings changes to update theme.
+    // However, RSVPApp manages the state of settings.
+    // So we should lift the state up or pass a way to update.
+    // Since PersistenceManager.loadSettings is a one-time load, we need a mutable state that is shared.
+    // But RSVPApp is where the main logic resides.
+
+    // Let's modify the structure slightly.
+    // RSVPApp will be responsible for providing the theme based on its internal state.
+
+    RSVPApp()
+}
+
+
 @Suppress("UNUSED_VALUE")
 @Composable
-fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
-    val modifier = Modifier // Keep consistent if needed elsewhere, but mostly using scaffoldPadding now
+fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
     // State backed by PersistenceManager
     var settings by remember { mutableStateOf(PersistenceManager.loadSettings(context)) }
+
+    FOSSRSVPTheme(darkTheme = settings.isDarkTheme) {
+        val finalScaffoldPadding = scaffoldPadding ?: androidx.compose.foundation.layout.PaddingValues(0.dp)
+        Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+            val padding = if (scaffoldPadding != null) scaffoldPadding else innerPadding
+            RSVPAppContent(padding, settings, { settings = it })
+        }
+    }
+}
+
+@Composable
+fun RSVPAppContent(
+    scaffoldPadding: androidx.compose.foundation.layout.PaddingValues,
+    settingsState: AppSettings,
+    onSettingsChanged: (AppSettings) -> Unit
+) {
+    val modifier = Modifier
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var settings = settingsState
     var libraryBooks by remember { mutableStateOf(PersistenceManager.loadLibrary(context)) }
     
     // Runtime State
@@ -103,7 +138,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
     if (showVoiceManager) {
         VoiceManagerScreen(
             currentSettings = settings,
-            onSettingsChanged = { settings = it },
+            onSettingsChanged = onSettingsChanged,
             onBack = { showVoiceManager = false }
         )
     } else if (isParsing) {
@@ -123,7 +158,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
             tokens = tokens,
             initialIndex = initialIndex,
             settings = settings,
-            onSettingsChanged = { newSettings -> settings = newSettings },
+            onSettingsChanged = onSettingsChanged,
             onBack = { progressIndex ->
                 // Update book progress on exit
                 if (currentBookUri != null) {
@@ -180,7 +215,7 @@ fun RSVPApp(scaffoldPadding: androidx.compose.foundation.layout.PaddingValues) {
                 }
             },
             settings = settings,
-            onSettingsChanged = { newSettings -> settings = newSettings },
+            onSettingsChanged = onSettingsChanged,
             tts = tts,
             isTtsReady = isTtsReady,
             libraryBooks = libraryBooks,

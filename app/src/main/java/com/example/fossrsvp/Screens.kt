@@ -115,9 +115,11 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 import kotlin.math.min
@@ -267,7 +269,10 @@ fun InputSelectionScreen(
 @Composable
 fun PasteInput(onStartReading: (String, String?, Boolean, String?) -> Unit) {
     var text by remember { mutableStateOf("") }
+    var saveToLibrary by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     
     val config = LocalConfiguration.current
     val isCompact = config.screenWidthDp < 480
@@ -277,7 +282,7 @@ fun PasteInput(onStartReading: (String, String?, Boolean, String?) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(if (isCompact) 13.dp else 21.dp)
     ) {
         Text("Paste Text", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-        Text("Paste text to read immediately (not saved to library).", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Paste text to read immediately.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         
         TextField(
             value = text,
@@ -294,8 +299,33 @@ fun PasteInput(onStartReading: (String, String?, Boolean, String?) -> Unit) {
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
             )
         )
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+             androidx.compose.material3.Checkbox(
+                 checked = saveToLibrary,
+                 onCheckedChange = { saveToLibrary = it }
+             )
+             Text("Save to Library", modifier = Modifier.clickable { saveToLibrary = !saveToLibrary })
+        }
+
         Button(
-            onClick = { onStartReading(text, null, false, null) },
+            onClick = {
+                if (saveToLibrary) {
+                    scope.launch {
+                        val timestamp = System.currentTimeMillis()
+                        val filename = "paste_$timestamp.txt"
+                        val file = File(context.filesDir, filename)
+                        withContext(Dispatchers.IO) {
+                            file.writeText(text)
+                        }
+                        val uri = Uri.fromFile(file)
+                        val title = if (text.length > 20) text.take(20) + "..." else text
+                        onStartReading(text, uri.toString(), false, "Paste: $title")
+                    }
+                } else {
+                    onStartReading(text, null, false, null)
+                }
+            },
             enabled = text.isNotBlank(),
             modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
@@ -314,6 +344,7 @@ fun LibraryInput(
 ) {
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -334,7 +365,7 @@ fun LibraryInput(
                 }
 
                 val isEpub = title.endsWith(".epub", ignoreCase = true)
-                val content = if (isEpub) extractTextFromEpub(context, uri) else extractTextFromPdf(context, uri)
+                val content = loadBookContent(context, uri, isEpub)
                 
                 isLoading = false
                 onStartReading(content, uri.toString(), isEpub, title)
@@ -358,6 +389,25 @@ fun LibraryInput(
         
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Search Bar
+        TextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Search library...") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Book, contentDescription = null) },
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(PremiumRadius),
+            colors = TextFieldDefaults.colors(
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            )
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
         } else if (books.isEmpty()) {
@@ -365,19 +415,31 @@ fun LibraryInput(
                 Text("No books imported yet.", style = MaterialTheme.typography.bodyLarge, color = Color.Gray)
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(books.sortedByDescending { it.addedAt }) { book ->
-                    NavigableBookItem(book, onOpen = {
-                         scope.launch {
-                             isLoading = true
-                             val uri = Uri.parse(book.uri)
-                             val content = if (book.isEpub) extractTextFromEpub(context, uri) else extractTextFromPdf(context, uri)
-                             isLoading = false
-                             onStartReading(content, book.uri, book.isEpub, book.title)
-                         }
-                    }, onDelete = {
-                        onUpdateLibrary(books.filter { it.uri != book.uri })
-                    })
+            val filteredBooks = if (searchQuery.isBlank()) {
+                books
+            } else {
+                books.filter { it.title.contains(searchQuery, ignoreCase = true) }
+            }
+
+            if (filteredBooks.isEmpty()) {
+                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No results found.", style = MaterialTheme.typography.bodyLarge, color = Color.Gray)
+                }
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(filteredBooks.sortedByDescending { it.addedAt }) { book ->
+                        NavigableBookItem(book, onOpen = {
+                             scope.launch {
+                                 isLoading = true
+                                 val uri = Uri.parse(book.uri)
+                                 val content = loadBookContent(context, uri, book.isEpub)
+                                 isLoading = false
+                                 onStartReading(content, book.uri, book.isEpub, book.title)
+                             }
+                        }, onDelete = {
+                            onUpdateLibrary(books.filter { it.uri != book.uri })
+                        })
+                    }
                 }
             }
         }
@@ -412,6 +474,7 @@ fun NavigableBookItem(book: Book, onOpen: () -> Unit, onDelete: () -> Unit) {
 @Composable
 fun WebInput(onStartReading: (String, String?, Boolean, String?) -> Unit, settings: AppSettings) {
     var url by remember { mutableStateOf("") }
+    var saveToLibrary by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -447,6 +510,14 @@ fun WebInput(onStartReading: (String, String?, Boolean, String?) -> Unit, settin
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
             )
         )
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+             androidx.compose.material3.Checkbox(
+                 checked = saveToLibrary,
+                 onCheckedChange = { saveToLibrary = it }
+             )
+             Text("Save to Library", modifier = Modifier.clickable { saveToLibrary = !saveToLibrary })
+        }
         
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.padding(16.dp))
@@ -458,9 +529,22 @@ fun WebInput(onStartReading: (String, String?, Boolean, String?) -> Unit, settin
             onClick = {
                 scope.launch {
                     isLoading = true
-                    val content = extractTextFromUrl(effectiveUrl)
+                    val result = extractContentFromUrl(effectiveUrl)
                     isLoading = false
-                    onStartReading(content, null, false, null)
+
+                    if (saveToLibrary) {
+                        // For web content, we use the URL as the URI.
+                        // Ideally we should download the content for offline access,
+                        // but logic to cache web content is complex.
+                        // For now, let's assume we treat it like a Book with URI=URL.
+                        // BUT, MainActivity logic for opening books assumes it can read from ContentResolver if it's a file URI?
+                        // Actually, my new `loadBookContent` tries `extractTextFromPdf` if not epub/txt.
+                        // I need to update `loadBookContent` to handle http/https URIs.
+
+                        onStartReading(result.content, effectiveUrl, false, result.title)
+                    } else {
+                        onStartReading(result.content, null, false, null)
+                    }
                 }
             },
             enabled = !isLoading && url.isNotBlank(), // effective URL is likely valid if user typed anything

@@ -118,6 +118,27 @@ suspend fun parseMarkdownToTokens(text: String, chunkSize: Int = 1): List<RSVPTo
     }
 }
 
+suspend fun loadBookContent(context: Context, uri: Uri, isEpub: Boolean): String = withContext(Dispatchers.IO) {
+    try {
+        val scheme = uri.scheme
+        if (scheme == "http" || scheme == "https") {
+             return@withContext extractTextFromUrl(uri.toString())
+        }
+
+        if (isEpub) return@withContext extractTextFromEpub(context, uri)
+
+        val path = uri.path ?: uri.toString()
+        if (path.endsWith(".txt", ignoreCase = true) || uri.toString().endsWith(".txt")) {
+            return@withContext context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: "Error reading text file"
+        }
+
+        // Default to PDF for now
+        extractTextFromPdf(context, uri)
+    } catch (e: Exception) {
+        "Error loading content: ${e.localizedMessage}"
+    }
+}
+
 suspend fun extractTextFromPdf(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
     try {
         context.contentResolver.openInputStream(uri)?.use { inputStream ->
@@ -154,12 +175,16 @@ suspend fun extractTextFromEpub(context: Context, uri: Uri): String = withContex
     }
 }
 
-suspend fun extractTextFromUrl(url: String): String = withContext(Dispatchers.IO) {
+data class UrlResult(val content: String, val title: String)
+
+suspend fun extractContentFromUrl(url: String): UrlResult = withContext(Dispatchers.IO) {
     try {
         val doc = Jsoup.connect(url)
             .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
             .get()
             
+        val title = doc.title().ifBlank { "Web Article" }
+
         // Smart Cleaning Algorithm
         
         // 1. Remove obvious clutter but KEEP images
@@ -197,7 +222,7 @@ suspend fun extractTextFromUrl(url: String): String = withContext(Dispatchers.IO
         
         val cleanedText = contentBuilder.toString()
         
-        if (cleanedText.length < 200) {
+        val finalText = if (cleanedText.length < 200) {
             // Fallback: If heuristic failed, look for images in body too
              val bodyText = doc.body().text()
              // Simple append of images found in body
@@ -211,9 +236,15 @@ suspend fun extractTextFromUrl(url: String): String = withContext(Dispatchers.IO
         } else {
             cleanedText
         }
+
+        UrlResult(finalText, title)
     } catch (e: Exception) {
-        "Error fetching URL: ${e.localizedMessage}"
+        UrlResult("Error fetching URL: ${e.localizedMessage}", "Error")
     }
+}
+
+suspend fun extractTextFromUrl(url: String): String {
+    return extractContentFromUrl(url).content
 }
 
 suspend fun generateTextWithGemini(apiKey: String, prompt: String, preset: String, modelName: String): String = withContext(Dispatchers.IO) {
