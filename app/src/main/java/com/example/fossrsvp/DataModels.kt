@@ -57,6 +57,7 @@ data class AppSettings(
     val useNeuralTts: Boolean = false,
     val aiModel: String = "gemini-flash-latest",
     val geminiApiKey: String = "",
+    val isDarkTheme: Boolean = true,
     val savedPresets: List<Pair<String, String>> = listOf(
         "Semantic Scribe" to """
 # ✨ Semantic Scribe v2

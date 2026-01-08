@@ -384,8 +384,25 @@ fun UserInterfaceSettings(
     currentSettings: AppSettings,
     onSettingsChanged: (AppSettings) -> Unit
 ) {
+    Text("User Interface", style = MaterialTheme.typography.titleMedium)
+
+    // Theme Mode
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Dark Theme")
+        Switch(
+            checked = currentSettings.isDarkTheme,
+            onCheckedChange = { onSettingsChanged(currentSettings.copy(isDarkTheme = it)) }
+        )
+    }
+
+    HorizontalDivider()
+
     // Color Scheme
-    Text("Color Scheme", style = MaterialTheme.typography.titleMedium)
+    Text("Reader Colors", style = MaterialTheme.typography.titleMedium)
     ColorSchemeOption.entries.forEach { option ->
         Row(
             modifier = Modifier
